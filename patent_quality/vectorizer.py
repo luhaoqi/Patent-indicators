@@ -94,23 +94,10 @@ def vectorize_by_year(cfg: Config) -> None:
             continue
 
         df_y, docs_y = _load_term_df_year(cfg, y)
-        
-        # Cold Start Logic: Use current year stats if history is empty
-        use_self_stats = (total_docs_so_far == 0)
-        base_docs = docs_y if use_self_stats else total_docs_so_far
-        
-        if use_self_stats:
-            logger.info(f"年份={y} 为起始年份，使用当年统计数据计算IDF (Cold Start)")
-            
         idf_by_index: Dict[int, float] = {}
         for term, idx in vocab.items():
-            if use_self_stats:
-                c = df_y.get(term, 0)
-            else:
-                c = cumulative_df.get(term, 0)
-            
-            val = base_docs / (1.0 + c)
-            idf_by_index[idx] = float(np.log(val)) if val > 1.0 else 0.0
+            c = cumulative_df.get(term, 0)
+            idf_by_index[idx] = 0.0 if total_docs_so_far == 0 else float(np.log(total_docs_so_far / (1.0 + c)))
             
         rows: List[int] = []
         cols: List[int] = []
@@ -168,7 +155,7 @@ def vectorize_by_year(cfg: Config) -> None:
                     
             nnz = m.nnz
             dt = time.perf_counter() - t0
-            logger.info(f"向量化完成 年份={y} 文档={len(ids)} 维度={len(vocab)} 非零={nnz} 耗时={dt:.2f}s 基于历史文档={base_docs}")
+            logger.info(f"向量化完成 年份={y} 文档={len(ids)} 维度={len(vocab)} 非零={nnz} 耗时={dt:.2f}s 基于历史文档={total_docs_so_far}")
         cumulative_df_y = df_y
         for term, c in cumulative_df_y.items():
             cumulative_df[term] = cumulative_df.get(term, 0) + c
