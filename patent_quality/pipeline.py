@@ -4,7 +4,7 @@ from .vocab import build_vocab
 from .vectorizer import prepare_tokens, vectorize_by_year
 from .similarity import compute_bs_fs
 from .quality import assemble_final_csv
-from .io_utils import load_checkpoint, save_checkpoint
+from .io_utils import load_checkpoint, save_checkpoint, clear_artifacts
 from .log import get_logger
 import time
 
@@ -14,6 +14,9 @@ def run_all(cfg: Config) -> None:
     logger = get_logger(level=cfg.log_level, log_file=cfg.log_file)
     t_all = time.perf_counter()
     logger.info(f"开始流水线 (skip_if_exists={cfg.skip_if_exists})")
+    if not cfg.skip_if_exists:
+        logger.info("检测到 skip_if_exists=False，清理中间结果 artifacts 目录")
+        clear_artifacts(cfg)
     ckpt = load_checkpoint(cfg)
 
     # 级联重置标志：如果前一个阶段重新执行了，后续阶段必须强制重跑（因为数据变了）

@@ -16,6 +16,7 @@ def main():
         artifacts_dir=os.path.join("artifacts_test"),
         chunksize=1000,
         log_file="artifacts_test/run.log",
+        skip_if_exists=False,
     )
     run_all(cfg)
     out_csv = os.path.join(cfg.artifacts_dir, "patent_quality_output.csv")
