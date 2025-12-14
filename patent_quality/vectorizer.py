@@ -66,10 +66,11 @@ def prepare_tokens(cfg: Config) -> Dict[int, int]:
     docs_per_year: Dict[int, int] = defaultdict(int)
     files: Dict[int, str] = {}
     
-    logger.info(f"开始分词并按年落盘tokens (并行模式 processes={min(8, cpu_count())})")
+    n_jobs = cfg.token_n_jobs or cpu_count()
+    batch_size = cfg.token_batch_size 
+    logger.info(f"开始分词并按年落盘tokens (并行模式 processes={n_jobs} batch_size={batch_size})")
     
     # Prepare batch processing
-    batch_size = 10000 
     batch_buffer = []
     
     # Function to flush results to disk
@@ -91,7 +92,6 @@ def prepare_tokens(cfg: Config) -> Dict[int, int]:
     
     # Use multiprocessing Pool
     # We use a modest number of processes to avoid excessive overhead
-    n_jobs = min(8, cpu_count())
     
     with Pool(processes=n_jobs, initializer=_init_worker, initargs=(cfg.user_dict_path,)) as pool:
         # We will use imap_unordered for better responsiveness, 

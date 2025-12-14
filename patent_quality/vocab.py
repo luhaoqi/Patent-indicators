@@ -53,7 +53,9 @@ def build_vocab(cfg: Config) -> Tuple[Dict[str, int], Dict[int, int]]:
     import sys
     sys.stdout.flush()
     stop_paths = cfg.stopword_paths
-    batch_size = 5000
+    batch_size = cfg.vocab_batch_size
+    n_jobs = cfg.vocab_n_jobs or cpu_count()
+    logger.info(f"并行统计DF processes={n_jobs} batch_size={batch_size}")
     def gen():
         b = []
         for pid, year, text in iter_clean_docs(cfg):
@@ -63,7 +65,7 @@ def build_vocab(cfg: Config) -> Tuple[Dict[str, int], Dict[int, int]]:
                 b = []
         if b:
             yield b
-    with Pool(processes=min(8, cpu_count()), initializer=_init_df_worker, initargs=(cfg.user_dict_path, stop_paths)) as pool:
+    with Pool(processes=n_jobs, initializer=_init_df_worker, initargs=(cfg.user_dict_path, stop_paths)) as pool:
         for g, by_y, dpy in tqdm(pool.imap(_worker_df, gen()), desc="scan(batch)"):
             for w, c in g.items():
                 term_df_global[w] += c

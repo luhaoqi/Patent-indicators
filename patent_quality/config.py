@@ -22,6 +22,10 @@ class Config:
     chunksize: int = 100000
     encoding: Optional[str] = None
     usecols: Optional[List[str]] = None
+    vocab_batch_size: int = 10000
+    vocab_n_jobs: Optional[int] = 12 # 默认使用cpu_count()
+    token_batch_size: int = 10000
+    token_n_jobs: Optional[int] = 12 # 默认使用cpu_count()
     log_level: str = "INFO"
     log_file: Optional[str] = None
     skip_if_exists: bool = True
