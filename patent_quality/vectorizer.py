@@ -12,7 +12,38 @@ from .data_loader import iter_docs_with_title
 from .nlp import init_jieba, load_stopwords, tokenize
 from .log import get_logger
 import time
+from multiprocessing import Pool, cpu_count, current_process
 
+
+def _init_worker(user_dict_path: str):
+    """Worker process initialization"""
+    # Each worker needs to initialize jieba independently
+    # Using a global flag or check inside nlp.py would be safer, 
+    # but calling init_jieba is idempotent-ish (loads dict).
+    # Ideally we only load once per process.
+    try:
+        init_jieba(user_dict_path)
+    except Exception:
+        pass
+
+def _worker_tokenize(args):
+    """
+    Worker function to tokenize a batch of documents.
+    args: (docs_list, stopword_paths)
+    docs_list: list of (pid, year, title, text, extra)
+    """
+    docs, stopword_paths = args
+    # Load stopwords in worker if needed, or pass set. 
+    # Passing large set via pickle is slow. Better load in init or lazy load.
+    # For simplicity, we load stopwords here (cached) or passed.
+    # Actually, let's load stopwords in _init_worker if possible, or just load here.
+    stop = load_stopwords(stopword_paths)
+    
+    results = []
+    for pid, year, title, text, extra in docs:
+        toks = tokenize(text, stop)
+        results.append((pid, year, title, toks, extra))
+    return results
 
 def prepare_tokens(cfg: Config) -> Dict[int, int]:
     cfg.ensure_dirs()
@@ -26,25 +57,64 @@ def prepare_tokens(cfg: Config) -> Dict[int, int]:
             pass
 
     logger = get_logger(level=cfg.log_level)
-    init_jieba(cfg.user_dict_path)
-    stop = load_stopwords(cfg.stopword_paths)
+    
+    # We do NOT init jieba here in main process if we use spawn (Windows),
+    # but it's fine to init for main process logging etc.
+    # Workers need their own init.
+    
+    stop_paths = cfg.stopword_paths
     docs_per_year: Dict[int, int] = defaultdict(int)
     files: Dict[int, str] = {}
-    logger.info("开始分词并按年落盘tokens")
+    
+    logger.info(f"开始分词并按年落盘tokens (并行模式 processes={min(8, cpu_count())})")
+    
+    # Prepare batch processing
+    batch_size = 10000 
+    batch_buffer = []
+    
+    # Function to flush results to disk
+    def flush_results(results):
+        for pid, year, title, toks, extra in results:
+            p = os.path.join(cfg.artifacts_dir, "tokens", f"year={year}.jsonl")
+            if year not in files:
+                files[year] = p
+            
+            obj = {"id": pid, "title": title, "tokens": toks}
+            obj.update(extra)
+            
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            docs_per_year[year] += 1
+
     import sys
     sys.stdout.flush()
-    for pid, year, title, text, extra in tqdm(iter_docs_with_title(cfg), desc="tokens"):
-        toks = tokenize(text, stop)
-        p = os.path.join(cfg.artifacts_dir, "tokens", f"year={year}.jsonl")
-        if year not in files:
-            files[year] = p
+    
+    # Use multiprocessing Pool
+    # We use a modest number of processes to avoid excessive overhead
+    n_jobs = min(8, cpu_count())
+    
+    with Pool(processes=n_jobs, initializer=_init_worker, initargs=(cfg.user_dict_path,)) as pool:
+        # We will use imap_unordered for better responsiveness, 
+        # but we need to feed it an iterator of batches.
         
-        obj = {"id": pid, "title": title, "tokens": toks}
-        obj.update(extra)
+        def batch_generator():
+            batch = []
+            for item in iter_docs_with_title(cfg):
+                batch.append(item)
+                if len(batch) >= batch_size:
+                    yield (batch, stop_paths)
+                    batch = []
+            if batch:
+                yield (batch, stop_paths)
+
+        # Process chunks
+        # Note: iter_docs_with_title yields (pid, year, title, text, extra)
+        # We wrap it in tqdm to show progress of *batches* or items?
+        # Since we don't know total count easily without scanning, we just use tqdm on the generator result.
         
-        with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
-        docs_per_year[year] += 1
+        for batch_results in tqdm(pool.imap(_worker_tokenize, batch_generator()), desc="tokens(batch)"):
+            flush_results(batch_results)
+
     with open(os.path.join(cfg.artifacts_dir, "stats", "docs_per_year.json"), "w", encoding="utf-8") as f:
         json.dump(docs_per_year, f, ensure_ascii=False)
     for y, c in sorted(docs_per_year.items()):
@@ -155,7 +225,7 @@ def vectorize_by_year(cfg: Config) -> None:
                     
             nnz = m.nnz
             dt = time.perf_counter() - t0
-            logger.info(f"向量化完成 年份={y} 文档={len(ids)} 维度={len(vocab)} 非零={nnz} 耗时={dt:.2f}s 基于历史文档={total_docs_so_far}")
+            logger.info(f"向量化完成 年份={y} 文档={len(ids)} 维度={len(vocab)} 非零={nnz} 耗时={(time.perf_counter()-t0):.2f}s 基于历史文档={total_docs_so_far}")
         cumulative_df_y = df_y
         for term, c in cumulative_df_y.items():
             cumulative_df[term] = cumulative_df.get(term, 0) + c
