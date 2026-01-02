@@ -9,7 +9,7 @@ def main():
         # 可以是单个大CSV文件，也可以是包含多个CSV的文件夹
         # 例如: r"D:\Data\patent_96gb.csv" 或 r"D:\Data\all_csvs"
         # 目前默认指向 tests/data 目录作为演示
-        data_path=os.path.join("tests", "data"), 
+        data_path=r"D:\BaiduNetdiskDownload\中国专利数据库1985-2025.2\分年份保存数据", 
         
         # 停用词表目录
         stopword_paths=[os.path.join("stopword")],
@@ -18,7 +18,7 @@ def main():
         user_dict_path=os.path.join("user_dict", "merged_96.txt"),
         
         # [特征选择]
-        min_term_count=20,          # 最小词频：小于20次的词被丢弃 (大规模数据建议20-50)
+        min_term_count=50,          # 最小词频：小于20次的词被丢弃 (大规模数据建议20-50)
         max_doc_freq_ratio=0.5,     # 最大文档频率：超过50%文档出现的词被丢弃(太通用的词)
         
         # [算法参数]
@@ -26,10 +26,10 @@ def main():
         similarity_threshold=0.05,   # 相似度阈值：0.05
         
         # [工程参数]
-        artifacts_dir="artifacts_full_30years", # 结果输出目录 (与测试目录区分开)
+        artifacts_dir="artifacts_full", # 结果输出目录 (与测试目录区分开)
         chunksize=100000,           # 批处理大小：10万行/次 (根据内存调整)
         log_level="INFO",
-        log_file="artifacts_full_30years/run.log", # 日志文件路径
+        log_file="artifacts_full/run.log", # 日志文件路径
         skip_if_exists=True,       # 断点续跑开关：True=跳过已完成阶段，False=强制重跑
         
         # [列名映射] (如果您的真实数据列名不同，请在此修改)

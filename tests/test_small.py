@@ -11,12 +11,12 @@ def main():
         # user_dict_path=os.path.join("user_dict", "merged_96.txt"),
         min_term_count=1,
         max_doc_freq_ratio=0.9,
-        window_size=2,
-        similarity_threshold=0.0,
+        window_size=2,                     # 特意改小了
+        similarity_threshold=0.05,
         artifacts_dir=os.path.join("artifacts_test"),
         chunksize=1000,
         log_file="artifacts_test/run.log",
-        skip_if_exists=False,
+        skip_if_exists=True,
     )
     run_all(cfg)
     out_csv = os.path.join(cfg.artifacts_dir, "patent_quality_output.csv")

@@ -18,25 +18,25 @@ def get_logger(name: str = "patent_quality", level: str = "INFO", log_file: Opti
 
     # Add file handler if requested and not present
     if log_file:
-        # Check if this specific file is already being logged to
-        # Note: We check if ANY FileHandler is present, or specifically this one. 
-        # For simplicity, if any FileHandler exists, we assume it's set up. 
-        # But to be robust, we check if we are adding a new file.
-        has_file_handler = False
         abs_log_file = os.path.abspath(log_file)
+        # Remove existing FileHandler for the same file to ensure truncation
+        to_remove = []
         for h in logger.handlers:
-            if isinstance(h, logging.FileHandler):
-                if h.baseFilename == abs_log_file:
-                    has_file_handler = True
-                    break
-        
-        if not has_file_handler:
-            # Ensure dir exists
-            log_dir = os.path.dirname(abs_log_file)
-            if log_dir:
-                os.makedirs(log_dir, exist_ok=True)
-            fh = logging.FileHandler(abs_log_file, encoding='utf-8')
-            fh.setFormatter(fmt)
-            logger.addHandler(fh)
+            if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == abs_log_file:
+                to_remove.append(h)
+        for h in to_remove:
+            try:
+                logger.removeHandler(h)
+                h.close()
+            except Exception:
+                pass
+        # Ensure dir exists
+        log_dir = os.path.dirname(abs_log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        # Open file in write mode to truncate each run
+        fh = logging.FileHandler(abs_log_file, mode='w', encoding='utf-8')
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
 
     return logger
