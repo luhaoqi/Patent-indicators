@@ -1,3 +1,4 @@
 artifacts*/
 *.pyc
 tests/data
+user_dict/
