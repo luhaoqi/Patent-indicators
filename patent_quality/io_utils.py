@@ -19,7 +19,17 @@ def save_checkpoint(cfg: Config, ckpt: Dict[str, Any]) -> None:
 
 def clear_artifacts(cfg: Config) -> None:
     base = cfg.artifacts_dir
-    subdirs = ["vocab", "df", "tokens", "vectors", getattr(cfg, "vectors_filtered_dir", "vectors_filtered"), "index", "stats"]
+    subdirs = [
+        "vocab",
+        "df",
+        "tokens",
+        "vectors",
+        getattr(cfg, "vectors_filtered_dir", "vectors_filtered"),
+        "index",
+        "stats",
+        getattr(cfg, "pair_contrib_dir", "pair_contrib"),
+        getattr(cfg, "postings_dir", "postings"),
+    ]
     for sub in subdirs:
         d = os.path.join(base, sub)
         if not os.path.exists(d):

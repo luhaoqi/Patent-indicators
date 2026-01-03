@@ -36,6 +36,12 @@ class Config:
     topk_terms_per_doc: int = 30
     vectors_filtered_dir: str = "vectors_filtered"
     use_vectors_filtered_for_bsfs: bool = True
+    pair_contrib_dir: str = "pair_contrib"
+    postings_dir: str = "postings"
+    block_size_docs: int = 10000
+    postings_mmap: bool = True
+    enable_maxscore: bool = False
+    method_version: str = "ir_v1"
 
     def ensure_dirs(self) -> None:
         os.makedirs(self.artifacts_dir, exist_ok=True)
@@ -46,3 +52,5 @@ class Config:
         os.makedirs(os.path.join(self.artifacts_dir, self.vectors_filtered_dir), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "index"), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "stats"), exist_ok=True)
+        os.makedirs(os.path.join(self.artifacts_dir, self.pair_contrib_dir), exist_ok=True)
+        os.makedirs(os.path.join(self.artifacts_dir, self.postings_dir), exist_ok=True)
