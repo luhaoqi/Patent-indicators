@@ -29,20 +29,13 @@ def _years_with_vectors(cfg: Config) -> List[int]:
 
 def _pair_list(cfg: Config, years: List[int]) -> List[Tuple[int, int]]:
     win = int(getattr(cfg, "window_size", 0))
+    year_set = set(years)
     pairs = set()
     for t in years:
         for d in range(1, win + 1):
-            x = t
             y = t + d
-            if y in years:
-                a, b = (x, y) if x < y else (y, x)
-                pairs.add((a, b))
-        for d in range(1, win + 1):
-            y = t - d
-            x = t
-            if y in years:
-                a, b = (x, y) if x < y else (y, x)
-                pairs.add((a, b))
+            if y in year_set:
+                pairs.add((t, y))
     lst = sorted(list(pairs))
     p_json = os.path.join(cfg.artifacts_dir, "pair_list.json")
     try:

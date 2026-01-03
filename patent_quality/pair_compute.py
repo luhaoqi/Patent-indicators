@@ -30,6 +30,8 @@ def _compute_block_numba(
     
     # We need to manually handle 'touched' array as a stack
     # touched array should be large enough (Ny), passed from outside
+
+    do_maxscore = use_maxscore and (thr > 1e-9)
     
     for i in range(i0, i1):
         row_idx = i - i0
@@ -44,10 +46,6 @@ def _compute_block_numba(
         
         n_terms = len(cols)
         remain = 0.0
-        
-        # Optimize: If threshold is 0, MaxScore pruning is impossible (cannot prune positive scores < 0).
-        # Force disable to avoid sorting/scanning overhead.
-        do_maxscore = use_maxscore and (thr > 1e-9)
 
         if do_maxscore:
             # Calculate upper bounds
@@ -133,23 +131,33 @@ def _compute_block_numba(
             
         stats[row_idx, 0] = touched_len
         
-        pruned_cnt = 0
         hits = 0
-        for t_idx in range(touched_len):
-            j = touched[t_idx]
-            if mark[j] != 0: # 1 or 2
-                if mark[j] == 2:
-                    pruned_cnt += 1
-                elif mark[j] == 1 and acc[j] >= thr:
+        if do_maxscore:
+            pruned_cnt = 0
+            for t_idx in range(touched_len):
+                j = touched[t_idx]
+                if mark[j] != 0:  # 1 or 2
+                    if mark[j] == 2:
+                        pruned_cnt += 1
+                    elif mark[j] == 1 and acc[j] >= thr:
+                        contrib_x[i] += acc[j]
+                        contrib_y[j] += acc[j]
+                        hits += 1
+
+                    acc[j] = 0.0
+                    mark[j] = 0
+
+            stats[row_idx, 1] = pruned_cnt
+        else:
+            for t_idx in range(touched_len):
+                j = touched[t_idx]
+                if acc[j] >= thr:
                     contrib_x[i] += acc[j]
                     contrib_y[j] += acc[j]
                     hits += 1
-                
-                # Reset
+
                 acc[j] = 0.0
                 mark[j] = 0
-        
-        stats[row_idx, 1] = pruned_cnt
         
         total_hits += hits
 
@@ -210,6 +218,7 @@ def compute_pair_contrib(cfg: Config, x: int, y: int) -> str:
     thr = float(getattr(cfg, "similarity_threshold", 0.0))
     block = int(getattr(cfg, "block_size_docs", 10000))
     use_maxscore = bool(getattr(cfg, "enable_maxscore", False))
+    do_maxscore = use_maxscore and (thr > 1e-9)
     contrib_x = np.zeros(Nx, dtype=np.float32)
     contrib_y = np.zeros(Ny, dtype=np.float32)
     acc = np.zeros(Ny, dtype=np.float32)
@@ -260,24 +269,25 @@ def compute_pair_contrib(cfg: Config, x: int, y: int) -> str:
         p90_touched = np.percentile(all_stats[:, 0], 90)
         max_touched_stat = np.max(all_stats[:, 0])
         
-        touched_lens = all_stats[:, 0]
-        pruned_cnts = all_stats[:, 1]
-        ratios = np.divide(pruned_cnts, touched_lens, out=np.zeros_like(pruned_cnts), where=touched_lens!=0)
-        avg_pruned_ratio = np.mean(ratios)
-        p90_pruned_ratio = np.percentile(ratios, 90)
-        
-        avg_remain_init = np.mean(all_stats[:, 2])
-        avg_remain_k1 = np.mean(all_stats[:, 3])
-        avg_remain_k3 = np.mean(all_stats[:, 4])
-        avg_remain_k5 = np.mean(all_stats[:, 5])
-        avg_remain_k10 = np.mean(all_stats[:, 6])
-        
         total_ops = np.sum(all_stats[:, 7])
         avg_ops = np.mean(all_stats[:, 7])
         
         logger.info(f"Diag ({x},{y}): Touched Avg={avg_touched:.1f} P90={p90_touched:.1f} Max={max_touched_stat:.0f}")
-        logger.info(f"Diag ({x},{y}): PrunedRatio Avg={avg_pruned_ratio:.4f} P90={p90_pruned_ratio:.4f}")
-        logger.info(f"Diag ({x},{y}): Remain Init={avg_remain_init:.4f} K1={avg_remain_k1:.4f} K3={avg_remain_k3:.4f} K5={avg_remain_k5:.4f} K10={avg_remain_k10:.4f}")
+        if do_maxscore:
+            touched_lens = all_stats[:, 0]
+            pruned_cnts = all_stats[:, 1]
+            ratios = np.divide(pruned_cnts, touched_lens, out=np.zeros_like(pruned_cnts), where=touched_lens != 0)
+            avg_pruned_ratio = np.mean(ratios)
+            p90_pruned_ratio = np.percentile(ratios, 90)
+
+            avg_remain_init = np.mean(all_stats[:, 2])
+            avg_remain_k1 = np.mean(all_stats[:, 3])
+            avg_remain_k3 = np.mean(all_stats[:, 4])
+            avg_remain_k5 = np.mean(all_stats[:, 5])
+            avg_remain_k10 = np.mean(all_stats[:, 6])
+
+            logger.info(f"Diag ({x},{y}): PrunedRatio Avg={avg_pruned_ratio:.4f} P90={p90_pruned_ratio:.4f}")
+            logger.info(f"Diag ({x},{y}): Remain Init={avg_remain_init:.4f} K1={avg_remain_k1:.4f} K3={avg_remain_k3:.4f} K5={avg_remain_k5:.4f} K10={avg_remain_k10:.4f}")
         logger.info(f"Diag ({x},{y}): PostingOps Total={total_ops:.0f} Avg={avg_ops:.1f}")
              
     meta = {
