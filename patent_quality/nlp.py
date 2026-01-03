@@ -90,8 +90,10 @@ def load_stopwords(paths: List[str]) -> Set[str]:
                             if w:
                                 s.add(w)
                     logger.info(f"停用词载入: {txt_path} (gb18030)")
-                except Exception:
+                except Exception as e:
                     logger.warning(f"停用词载入失败: {txt_path}")
+                    # 输出异常信息
+                    logger.error(e)
                     continue
     return s
 

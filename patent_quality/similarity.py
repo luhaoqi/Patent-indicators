@@ -8,8 +8,14 @@ from .log import get_logger
 import time
 
 
+def _resolve_vectors_base(cfg: Config) -> str:
+    if getattr(cfg, "use_vectors_filtered_for_bsfs", False):
+        return os.path.join(cfg.artifacts_dir, getattr(cfg, "vectors_filtered_dir", "vectors_filtered"))
+    return os.path.join(cfg.artifacts_dir, "vectors")
+
+
 def _years_with_vectors(cfg: Config) -> List[int]:
-    base = os.path.join(cfg.artifacts_dir, "vectors")
+    base = _resolve_vectors_base(cfg)
     ys = []
     for name in os.listdir(base):
         if name.startswith("year=") and name.endswith(".npz"):
@@ -38,7 +44,8 @@ def compute_bs_fs(cfg: Config) -> None:
     
     for t in years:
         t0 = time.perf_counter()
-        M_T = sparse.load_npz(os.path.join(cfg.artifacts_dir, "vectors", f"year={t}.npz"))
+        base = _resolve_vectors_base(cfg)
+        M_T = sparse.load_npz(os.path.join(base, f"year={t}.npz"))
         bs = np.zeros(M_T.shape[0], dtype="float64")
         fs = np.zeros(M_T.shape[0], dtype="float64")
         back_years = [y for y in years if t - cfg.window_size <= y <= t - 1]
@@ -54,17 +61,17 @@ def compute_bs_fs(cfg: Config) -> None:
             logger.warning(f"年份={t} 无回看年份 (BS=0)")
         for y in back_years:
             t1 = time.perf_counter()
-            M_Y = sparse.load_npz(os.path.join(cfg.artifacts_dir, "vectors", f"year={y}.npz"))
+            M_Y = sparse.load_npz(os.path.join(base, f"year={y}.npz"))
             logger.info(f"BS计算: 加载年份={y} 向量 维度={M_Y.shape}")
             S = M_T.dot(M_Y.T)
             bs += _sum_rows_after_threshold(S, cfg.similarity_threshold)
             logger.info(f"BS乘法 T={t}×Y={y} 结果非零={S.nnz} 耗时={(time.perf_counter()-t1):.2f}s")
-        
+
         if not forward_years:
             logger.warning(f"年份={t} 无前看年份 (FS=0)")
         for y in forward_years:
             t1 = time.perf_counter()
-            M_Y = sparse.load_npz(os.path.join(cfg.artifacts_dir, "vectors", f"year={y}.npz"))
+            M_Y = sparse.load_npz(os.path.join(base, f"year={y}.npz"))
             logger.info(f"FS计算: 加载年份={y} 向量 维度={M_Y.shape}")
             S = M_T.dot(M_Y.T)
             fs += _sum_rows_after_threshold(S, cfg.similarity_threshold)

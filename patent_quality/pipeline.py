@@ -6,6 +6,7 @@ from .similarity import compute_bs_fs
 from .quality import assemble_final_csv
 from .io_utils import load_checkpoint, save_checkpoint, clear_artifacts
 from .log import get_logger
+from .pruning import prune_vectors_by_year
 import time
 
 
@@ -80,40 +81,57 @@ def run_all(cfg: Config) -> None:
         save_checkpoint(cfg, ckpt)
         logger.info(f"阶段3完成 耗时={(time.perf_counter()-t2):.2f}s")
 
-    # --- 阶段4: 计算BS/FS ---
+    # --- 阶段4: 向量剪枝 ---
     if cascade_reset:
-        if "bsfs_years" in ckpt:
+        if "vectors_pruned" in ckpt:
             logger.info("因前置阶段变更,清除阶段4状态")
-            del ckpt["bsfs_years"]
+            del ckpt["vectors_pruned"]
             save_checkpoint(cfg, ckpt)
 
-    if ckpt.get("bsfs_years", False):
+    if ckpt.get("vectors_pruned", False):
         logger.info("阶段4: 已完成，跳过")
     else:
         cascade_reset = True
         t3 = time.perf_counter()
-        logger.info("阶段4: 计算BS/FS")
-        compute_bs_fs(cfg)
-        ckpt["bsfs_years"] = True
+        logger.info("阶段4: 向量剪枝")
+        prune_vectors_by_year(cfg)
+        ckpt["vectors_pruned"] = True
         save_checkpoint(cfg, ckpt)
         logger.info(f"阶段4完成 耗时={(time.perf_counter()-t3):.2f}s")
 
-    # --- 阶段5: 生成最终CSV ---
+    # --- 阶段5: 计算BS/FS ---
+    if cascade_reset:
+        if "bsfs_years" in ckpt:
+            logger.info("因前置阶段变更,清除阶段5状态")
+            del ckpt["bsfs_years"]
+            save_checkpoint(cfg, ckpt)
+
+    if ckpt.get("bsfs_years", False):
+        logger.info("阶段5: 已完成，跳过")
+    else:
+        cascade_reset = True
+        t4 = time.perf_counter()
+        logger.info("阶段5: 计算BS/FS")
+        compute_bs_fs(cfg)
+        ckpt["bsfs_years"] = True
+        save_checkpoint(cfg, ckpt)
+        logger.info(f"阶段5完成 耗时={(time.perf_counter()-t4):.2f}s")
+
+    # --- 阶段6: 生成最终CSV ---
     if cascade_reset:
         if "final_csv" in ckpt:
-            logger.info("因前置阶段变更,清除阶段5状态")
+            logger.info("因前置阶段变更,清除阶段6状态")
             del ckpt["final_csv"]
             save_checkpoint(cfg, ckpt)
 
     if ckpt.get("final_csv"):
-        logger.info("阶段5: 已完成，跳过")
+        logger.info("阶段6: 已完成，跳过")
     else:
-        t4 = time.perf_counter()
-        logger.info("阶段5: 生成最终CSV")
+        t5 = time.perf_counter()
+        logger.info("阶段6: 生成最终CSV")
         out_csv = os.path.join(cfg.artifacts_dir, "patent_quality_output.csv")
         assemble_final_csv(cfg, output_path=out_csv)
         ckpt["final_csv"] = out_csv
         save_checkpoint(cfg, ckpt)
-        logger.info(f"阶段5完成 输出={out_csv} 耗时={(time.perf_counter()-t4):.2f}s")
-
+        logger.info(f"阶段6完成 输出={out_csv} 耗时={(time.perf_counter()-t5):.2f}s")
     logger.info(f"流水线完成 总耗时={(time.perf_counter()-t_all):.2f}s")

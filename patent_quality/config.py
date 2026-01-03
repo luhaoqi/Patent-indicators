@@ -30,6 +30,12 @@ class Config:
     log_file: Optional[str] = None
     skip_if_exists: bool = True
     extra_cols: List[str] = field(default_factory=lambda: ["申请人", "申请人类型", "申请人地址", "申请人城市"])
+    manual_stopwords_path: str = "./stopword/专利停用词.txt"
+    df_ratio_threshold: float = 0.20
+    top_df_percent: float = 0.002
+    topk_terms_per_doc: int = 30
+    vectors_filtered_dir: str = "vectors_filtered"
+    use_vectors_filtered_for_bsfs: bool = True
 
     def ensure_dirs(self) -> None:
         os.makedirs(self.artifacts_dir, exist_ok=True)
@@ -37,5 +43,6 @@ class Config:
         os.makedirs(os.path.join(self.artifacts_dir, "df"), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "tokens"), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "vectors"), exist_ok=True)
+        os.makedirs(os.path.join(self.artifacts_dir, self.vectors_filtered_dir), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "index"), exist_ok=True)
         os.makedirs(os.path.join(self.artifacts_dir, "stats"), exist_ok=True)
