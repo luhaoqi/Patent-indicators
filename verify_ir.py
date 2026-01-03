@@ -1,9 +1,13 @@
 import os
 import sys
 import time
+import cProfile
+import pstats
+import io
 import numpy as np
 import shutil
 import argparse
+import logging
 from patent_quality.config import Config
 from patent_quality.pair_compute import compute_pair_contrib
 from patent_quality.postings import build_postings_for_year
@@ -52,7 +56,8 @@ def run_verification(target_year: int):
     # Configure IR parameters
     cfg.block_size_docs = 10000
     cfg.postings_mmap = True
-    cfg.enable_maxscore = True # Start with False for safety/correctness first
+    cfg.enable_maxscore = False # Start with False for safety/correctness first
+    compute_bound = 5
     
     logger = get_logger(level="INFO", log_file=cfg.log_file)
     logger.info(f"=== {target_year} IR Verification Start ===")
@@ -83,14 +88,21 @@ def run_verification(target_year: int):
     logger.info(f"Target: {target_year}")
     logger.info(f"Back Years: {back_years}")
     logger.info(f"Forward Years: {forward_years}")
+    logger.info(f"Similarity Threshold: {cfg.similarity_threshold}")
     
     # 3. Compute Pairs
+    pairs_computed = 0
+    
     # Step 3.1: BS Pairs
     for y in back_years:
         logger.info(f"Computing Pair (BS): {y} - {target_year}")
         t_start = time.time()
         compute_pair_contrib(cfg, y, target_year)
         logger.info(f"Pair (BS) {y} - {target_year} took {time.time() - t_start:.2f}s")
+        pairs_computed += 1
+        if pairs_computed >= compute_bound: # Limit for profiling
+            logger.info("Profiling Limit Reached (2 pairs). Stopping.")
+            return
         
     # Step 3.2: FS Pairs
     for y in forward_years:
@@ -98,6 +110,10 @@ def run_verification(target_year: int):
         t_start = time.time()
         compute_pair_contrib(cfg, target_year, y)
         logger.info(f"Pair (FS) {target_year} - {y} took {time.time() - t_start:.2f}s")
+        pairs_computed += 1
+        if pairs_computed >= compute_bound: # Limit for profiling
+            logger.info("Profiling Limit Reached (2 pairs). Stopping.")
+            return
         
     # 4. Aggregate
     logger.info("Aggregating results...")
@@ -151,4 +167,45 @@ if __name__ == "__main__":
     parser.add_argument('year', type=int, nargs='?', default=2008, help='The target year to verify (default: 2008)')
     args = parser.parse_args()
     
-    run_verification(args.year)
+    print(f"=== Profiling Enabled for Year {args.year} ===")
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    try:
+        run_verification(args.year)
+    finally:
+        profiler.disable()
+        
+        # Save and Print Stats
+        stats_file = os.path.join(os.getcwd(), f"profile_ir_{args.year}.prof")
+        print(f"\nGenerating profile stats...")
+        
+        # Capture stats to string
+        s = io.StringIO()
+        stats = pstats.Stats(profiler, stream=s).sort_stats('cumtime')
+        stats.print_stats(30)
+        profile_text = s.getvalue()
+        
+        # Print to console
+        print(profile_text)
+        
+        # Save to file
+        stats.dump_stats(stats_file)
+        print(f"Profile data saved to: {stats_file}")
+        
+        # Append to log file
+        log_file = os.path.join(os.getcwd(), "test_IR_artifacts", "run.log")
+        try:
+            # Try to use existing logger if available
+            logger = logging.getLogger("patent_quality")
+            if logger.handlers:
+                logger.info("\n=== Performance Profile ===\n" + profile_text)
+            else:
+                # Fallback to direct file append if logger not configured
+                if os.path.exists(log_file):
+                    with open(log_file, "a", encoding="utf-8") as f:
+                        f.write("\n=== Performance Profile ===\n")
+                        f.write(profile_text)
+                        f.write("===========================\n")
+        except Exception as e:
+            print(f"Failed to write profile to log: {e}")
