@@ -29,7 +29,7 @@ def main():
         artifacts_dir="artifacts_full", # 结果输出目录 (与测试目录区分开)
         chunksize=100000,           # 批处理大小：10万行/次 (根据内存调整)
         log_level="INFO",
-        log_file="artifacts_full/run_optimized_1.3.log", # 日志文件路径
+        log_file="artifacts_full/run_optimized_1.4_倒排索引_不使用maxscore版本.log", # 日志文件路径
         skip_if_exists=True,       # 断点续跑开关：True=跳过已完成阶段，False=强制重跑
         
         # [列名映射] (如果您的真实数据列名不同，请在此修改)
