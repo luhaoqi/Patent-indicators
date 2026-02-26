@@ -4,3 +4,4 @@ tests/data
 user_dict/
 test_IR_artifacts/
 .VSCodeCounter/
+data/

@@ -5,11 +5,9 @@ import os
 def main():
     # --- 正式运行配置 ---
     cfg = Config(
-        # [关键] 数据路径：请修改为您真实的96GB数据路径
-        # 可以是单个大CSV文件，也可以是包含多个CSV的文件夹
-        # 例如: r"D:\Data\patent_96gb.csv" 或 r"D:\Data\all_csvs"
-        # 目前默认指向 tests/data 目录作为演示
-        data_path=r"D:\BaiduNetdiskDownload\中国专利数据库1985-2025.2\分年份保存数据", 
+        # [关键] 数据路径：可指向单个CSV或包含多个CSV的文件夹
+        # 默认建议将原始数据放在 data/raw 目录
+        data_path=os.path.join("data", "raw"), 
         
         # 停用词表目录
         stopword_paths=[os.path.join("stopword")],
