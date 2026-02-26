@@ -39,7 +39,7 @@ def main():
     )
     
     print("="*50)
-    print(f"开始执行全量任务")
+    print("开始执行全量任务")
     print(f"数据路径: {os.path.abspath(cfg.data_path)}")
     print(f"输出目录: {os.path.abspath(cfg.artifacts_dir)}")
     print(f"参数设置: window={cfg.window_size}, min_term={cfg.min_term_count}, thr={cfg.similarity_threshold}")

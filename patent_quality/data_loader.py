@@ -39,12 +39,16 @@ def _parse_year(row: pd.Series, col_year: str, fallback_date_col: str) -> Option
     return None
 
 
-def _concat_text(row: pd.Series, parts: List[str]) -> str:
+def _concat_text(row: pd.Series, parts: List[str], sep: str) -> str:
     vals = []
     for c in parts:
         v = row.get(c)
-        vals.append("" if pd.isna(v) else str(v))
-    return "".join(vals)
+        if pd.isna(v):
+            continue
+        s = str(v)
+        if s:
+            vals.append(s)
+    return sep.join(vals)
 
 
 def iter_clean_docs(cfg: Config, fallback_date_col: str = "申请日") -> Iterable[Tuple[str, int, str]]:
@@ -67,7 +71,7 @@ def iter_clean_docs(cfg: Config, fallback_date_col: str = "申请日") -> Iterab
                         year = _parse_year(row, cfg.col_date, fallback_date_col)
                         if year is None:
                             continue
-                        text = _concat_text(row, cfg.col_text_parts)
+                        text = _concat_text(row, cfg.col_text_parts, cfg.text_sep)
                         seen_ids[pid] = True
                         yield pid, year, text
                 read_ok = True
@@ -103,7 +107,7 @@ def iter_docs_with_title(cfg: Config, title_col: str = "专利名称", fallback_
                             continue
                         title = row.get(title_col)
                         title = "" if pd.isna(title) else str(title)
-                        text = _concat_text(row, cfg.col_text_parts)
+                        text = _concat_text(row, cfg.col_text_parts, cfg.text_sep)
                         seen_ids[pid] = True
                         extra_data = {}
                         for c in cfg.extra_cols:

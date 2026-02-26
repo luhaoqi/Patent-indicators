@@ -12,6 +12,7 @@ cfg = Config(
   data_path="path/to/csv_or_dir",
   stopword_paths=["stopwords.txt"],
   user_dict_path="user_dict.txt",
+  text_sep=" ",
 )
 run_all(cfg)
 ```

@@ -12,6 +12,7 @@ class Config:
     col_date: str = "申请年份"
     col_type: str = "专利类型"
     col_text_parts: List[str] = field(default_factory=lambda: ["专利名称", "摘要文本", "主权项内容"])
+    text_sep: str = " "
     min_term_count: int = 20
     max_doc_freq_ratio: float = 0.5
     window_size: int = 5
