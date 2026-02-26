@@ -20,9 +20,9 @@
 
   * 使用词表映射与每年 DF 文件：
 
-    * 词表：`artifacts/vocab/final_vocab.json`（键=词，值=列索引），参见 [vocab.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/vocab.py#L96-L109)
+    * 词表：`artifacts/vocab/final_vocab.json`（键=词，值=列索引），参见 [vocab.py](./vocab.py#L96-L109)
 
-    * 每年 DF：`artifacts/df/term_df_year=YYYY.json`，参见 [vectorizer.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/vectorizer.py#L130-L134)
+    * 每年 DF：`artifacts/df/term_df_year=YYYY.json`，参见 [vectorizer.py](./vectorizer.py#L130-L134)
 
 ## 剪枝实现细节
 
@@ -56,7 +56,7 @@
 
 ## Pipeline 改造
 
-* 修改 [pipeline.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/pipeline.py):
+* 修改 [pipeline.py](./pipeline.py):
 
   * 在阶段3之后插入“阶段4：向量剪枝”，调用 `prune_vectors_by_year(cfg)`。
 
@@ -72,7 +72,7 @@
 
 ## 配置参数新增
 
-* 修改 [config.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/config.py):
+* 修改 [config.py](./config.py):
 
   * `manual_stopwords_path: str = "stopword/专利停用词表.txt"`
 
@@ -90,7 +90,7 @@
 
 ## 相似度计算切换目录
 
-* 修改 [similarity.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/similarity.py):
+* 修改 [similarity.py](./similarity.py):
 
   * 新增目录解析：现在的目录需要使用 config中的 `vectors_filtered_dir`。
 
@@ -98,7 +98,7 @@
 
 ## 工具与清理
 
-* 修改 [io\_utils.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/io_utils.py):
+* 修改 [io\_utils.py](./io_utils.py):
 
   * `clear_artifacts` 的 `subdirs` 增加 `vectors_filtered`，以支持全量清理。
 
@@ -108,7 +108,7 @@
 
 * 所有子步骤按年份输出：阶段名、年份、用时、nnz/行/列等关键统计；阶段级汇总总耗时。
 
-* 复用现有日志工具 [log.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/log.py)。
+* 复用现有日志工具 [log.py](./log.py)。
 
 ## 验证与验收
 
@@ -126,7 +126,7 @@
 
 * Top-K 使用 `argpartition` 在行片段上选择，时间复杂度线性近似，适合大规模稀疏矩阵。
 
-* 保持 dtype 与规范化行为与当前向量化一致（参见 [vectorizer.py](file:///d:/BaiduNetdiskDownload/工具/专利指标/patent_quality/vectorizer.py#L210-L228)），不改变指标含义。
+* 保持 dtype 与规范化行为与当前向量化一致（参见 [vectorizer.py](./vectorizer.py#L210-L228)），不改变指标含义。
 
 ## 后续代码改动列表（摘要）
 

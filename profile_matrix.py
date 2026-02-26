@@ -3,7 +3,7 @@ import numpy as np
 from scipy import sparse
 
 def profile_year(year):
-    path = f"D:\\BaiduNetdiskDownload\\工具\\专利指标\\artifacts_full\\vectors_filtered\\year={year}.npz"
+    path = os.path.join("artifacts_full", "vectors_filtered", f"year={year}.npz")
     if not os.path.exists(path):
         print(f"File not found: {path}")
         return
