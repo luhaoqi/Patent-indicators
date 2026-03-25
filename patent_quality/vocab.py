@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 from tqdm import tqdm
 from .config import Config
 from .data_loader import iter_clean_docs
@@ -9,7 +9,6 @@ from .log import get_logger
 import time
 import os
 from multiprocessing import Pool, cpu_count
-from typing import List, Tuple
 
 _STOPWORDS_CACHE = None
 

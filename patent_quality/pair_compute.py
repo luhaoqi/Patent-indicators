@@ -2,7 +2,6 @@ import os
 import json
 import numpy as np
 from scipy import sparse
-from typing import Tuple
 from .config import Config
 from .log import get_logger
 from .postings import load_postings_for_year, build_postings_for_year
@@ -89,10 +88,14 @@ def _compute_block_numba(
             if ps == pe:
                 if do_maxscore:
                     remain -= uw
-                    if k == 0: stats[row_idx, 3] = remain
-                    if k == 2: stats[row_idx, 4] = remain
-                    if k == 4: stats[row_idx, 5] = remain
-                    if k == 9: stats[row_idx, 6] = remain
+                    if k == 0:
+                        stats[row_idx, 3] = remain
+                    if k == 2:
+                        stats[row_idx, 4] = remain
+                    if k == 4:
+                        stats[row_idx, 5] = remain
+                    if k == 9:
+                        stats[row_idx, 6] = remain
                 continue
                 
             for p in range(ps, pe):
@@ -111,10 +114,14 @@ def _compute_block_numba(
             
             if do_maxscore:
                 remain -= uw
-                if k == 0: stats[row_idx, 3] = remain
-                if k == 2: stats[row_idx, 4] = remain
-                if k == 4: stats[row_idx, 5] = remain
-                if k == 9: stats[row_idx, 6] = remain
+                if k == 0:
+                    stats[row_idx, 3] = remain
+                if k == 2:
+                    stats[row_idx, 4] = remain
+                if k == 4:
+                    stats[row_idx, 5] = remain
+                if k == 9:
+                    stats[row_idx, 6] = remain
                 
                 # Pruning pass
                 if remain > 0.0:

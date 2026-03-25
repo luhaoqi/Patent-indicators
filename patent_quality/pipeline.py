@@ -129,7 +129,7 @@ def run_all(cfg: Config) -> None:
     else:
         t5 = time.perf_counter()
         logger.info("阶段6: 生成最终CSV")
-        out_csv = os.path.join(cfg.artifacts_dir, "patent_quality_output.csv")
+        out_csv = os.fspath(cfg.final_output_path)
         assemble_final_csv(cfg, output_path=out_csv)
         ckpt["final_csv"] = out_csv
         save_checkpoint(cfg, ckpt)

@@ -18,11 +18,11 @@ run_all(cfg)
 ```
 
 3. 结果
-- `artifacts/patent_quality_output.csv`：包含 `申请号, 申请年份, 专利名称, BS, FS, Quality_q`
-- 分年中间产物位于 `artifacts/` 子目录
+- `outputs/experiments/<experiment_id>/stage1/patent_quality_output.csv`：包含 `申请号, 申请年份, 专利名称, BS, FS, Quality_q`
+- 分年中间产物位于 `outputs/experiments/<experiment_id>/stage1/` 子目录
 
 4. 断点续跑
-- 自动记录 `artifacts/checkpoint.json`，重复运行将复用已完成步骤
+- 自动记录 `outputs/experiments/<experiment_id>/stage1/checkpoint.json`，重复运行将复用已完成步骤
 
 5. 常见问题
 - Windows 并行分词：使用自建进程池方案或单线程分词

@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, cast
 import numpy as np
 from scipy import sparse
 import time
@@ -36,10 +36,11 @@ def _years_with_vectors(cfg: Config) -> List[int]:
 def _zero_columns_in_csr(m: sparse.csr_matrix, col_set: Set[int]) -> None:
     if not col_set or m.nnz == 0:
         return
-    indptr = m.indptr
-    indices = m.indices
-    data = m.data
-    for r in range(m.shape[0]):
+    n_rows = cast(Tuple[int, int], m.shape)[0]
+    indptr = cast(np.ndarray, m.indptr)
+    indices = cast(np.ndarray, m.indices)
+    data = cast(np.ndarray, m.data)
+    for r in range(n_rows):
         start = indptr[r]
         end = indptr[r + 1]
         if start == end:
@@ -55,13 +56,13 @@ def _zero_columns_in_csr(m: sparse.csr_matrix, col_set: Set[int]) -> None:
 
 def _topk_per_row(m: sparse.csr_matrix, k: int) -> None:
     if k <= 0 or m.nnz == 0:
-        m.data[:] = 0.0
+        cast(np.ndarray, m.data)[:] = 0.0
         m.eliminate_zeros()
         return
-    indptr = m.indptr
-    indices = m.indices
-    data = m.data
-    for r in range(m.shape[0]):
+    n_rows = cast(Tuple[int, int], m.shape)[0]
+    indptr = cast(np.ndarray, m.indptr)
+    data = cast(np.ndarray, m.data)
+    for r in range(n_rows):
         start = indptr[r]
         end = indptr[r + 1]
         nnz = end - start

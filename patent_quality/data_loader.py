@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 import pandas as pd
 from tqdm import tqdm
 from .config import Config
@@ -19,13 +19,13 @@ def _list_data_files(path: str) -> List[str]:
 
 def _parse_year(row: pd.Series, col_year: str, fallback_date_col: str) -> Optional[int]:
     y = row.get(col_year)
-    if pd.notna(y):
+    if _is_present(y):
         try:
             return int(str(y)[:4])
         except Exception:
             pass
     d = row.get(fallback_date_col)
-    if pd.notna(d):
+    if _is_present(d):
         s = str(d)
         for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
             try:
@@ -43,12 +43,21 @@ def _concat_text(row: pd.Series, parts: List[str], sep: str) -> str:
     vals = []
     for c in parts:
         v = row.get(c)
-        if pd.isna(v):
+        if not _is_present(v):
             continue
         s = str(v)
         if s:
             vals.append(s)
     return sep.join(vals)
+
+
+def _is_present(value: Any) -> bool:
+    if value is None:
+        return False
+    missing = pd.isna(value)
+    if isinstance(missing, bool):
+        return not missing
+    return not cast(bool, missing.all())
 
 
 def iter_clean_docs(cfg: Config, fallback_date_col: str = "申请日") -> Iterable[Tuple[str, int, str]]:
@@ -106,13 +115,13 @@ def iter_docs_with_title(cfg: Config, title_col: str = "专利名称", fallback_
                         if year is None:
                             continue
                         title = row.get(title_col)
-                        title = "" if pd.isna(title) else str(title)
+                        title = "" if not _is_present(title) else str(title)
                         text = _concat_text(row, cfg.col_text_parts, cfg.text_sep)
                         seen_ids[pid] = True
                         extra_data = {}
                         for c in cfg.extra_cols:
                             v = row.get(c)
-                            extra_data[c] = "" if pd.isna(v) else str(v)
+                            extra_data[c] = "" if not _is_present(v) else str(v)
                         yield pid, year, title, text, extra_data
                 read_ok = True
                 break

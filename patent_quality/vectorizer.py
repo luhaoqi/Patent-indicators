@@ -12,7 +12,7 @@ from .data_loader import iter_docs_with_title
 from .nlp import init_jieba, load_stopwords, tokenize
 from .log import get_logger
 import time
-from multiprocessing import Pool, cpu_count, current_process
+from multiprocessing import Pool, cpu_count
 
 
 def _init_worker(user_dict_path: str):
@@ -69,9 +69,6 @@ def prepare_tokens(cfg: Config) -> Dict[int, int]:
     n_jobs = cfg.token_n_jobs or cpu_count()
     batch_size = cfg.token_batch_size 
     logger.info(f"开始分词并按年落盘tokens (并行模式 processes={n_jobs} batch_size={batch_size})")
-    
-    # Prepare batch processing
-    batch_buffer = []
     
     # Function to flush results to disk
     def flush_results(results):
@@ -224,7 +221,6 @@ def vectorize_by_year(cfg: Config) -> None:
                     writer.writerow(row)
                     
             nnz = m.nnz
-            dt = time.perf_counter() - t0
             logger.info(f"向量化完成 年份={y} 文档={len(ids)} 维度={len(vocab)} 非零={nnz} 耗时={(time.perf_counter()-t0):.2f}s 基于历史文档={total_docs_so_far}")
         cumulative_df_y = df_y
         for term, c in cumulative_df_y.items():

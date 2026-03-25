@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 import os
+from pathlib import Path
 
 
 @dataclass
@@ -44,14 +45,35 @@ class Config:
     enable_maxscore: bool = False
     method_version: str = "ir_v1"
 
+    def __post_init__(self) -> None:
+        self.data_path = os.fspath(self.data_path)
+        self.stopword_paths = [os.fspath(path) for path in self.stopword_paths]
+        if self.user_dict_path is not None:
+            self.user_dict_path = os.fspath(self.user_dict_path)
+        self.artifacts_dir = os.fspath(self.artifacts_dir)
+        if self.log_file is not None:
+            self.log_file = os.fspath(self.log_file)
+        self.manual_stopwords_path = os.fspath(self.manual_stopwords_path)
+
+    @property
+    def artifacts_path(self) -> Path:
+        return Path(self.artifacts_dir)
+
+    @property
+    def final_output_path(self) -> Path:
+        return self.artifacts_path / "patent_quality_output.csv"
+
+    def artifacts_subdir(self, name: str) -> Path:
+        return self.artifacts_path / name
+
     def ensure_dirs(self) -> None:
-        os.makedirs(self.artifacts_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "vocab"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "df"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "tokens"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "vectors"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, self.vectors_filtered_dir), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "index"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, "stats"), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, self.pair_contrib_dir), exist_ok=True)
-        os.makedirs(os.path.join(self.artifacts_dir, self.postings_dir), exist_ok=True)
+        self.artifacts_path.mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "vocab").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "df").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "tokens").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "vectors").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / self.vectors_filtered_dir).mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "index").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / "stats").mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / self.pair_contrib_dir).mkdir(parents=True, exist_ok=True)
+        (self.artifacts_path / self.postings_dir).mkdir(parents=True, exist_ok=True)

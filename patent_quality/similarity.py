@@ -2,7 +2,6 @@ import os
 import json
 import numpy as np
 from typing import List, Tuple
-from tqdm import tqdm
 from scipy import sparse
 from .config import Config
 from .log import get_logger
