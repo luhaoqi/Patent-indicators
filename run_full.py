@@ -17,13 +17,13 @@ def main():
         min_term_count=50,  # 最小词频：小于20次的词被丢弃 (大规模数据建议20-50)
         max_doc_freq_ratio=0.5,  # 最大文档频率：超过50%文档出现的词被丢弃(太通用的词)
         # [算法参数]
-        window_size=5,  # 滑动窗口大小：5年 (Kelly标准)
+        window_size=3,  # 滑动窗口大小：3年 (Kelly标准)
         similarity_threshold=0.05,  # 相似度阈值：0.05
         # [工程参数]
-        artifacts_dir="data/result/标题+摘要版本",  # 结果输出目录 (与测试目录区分开)
+        artifacts_dir="data/result/标题+摘要版本+window_size=3",  # 结果输出目录 (与测试目录区分开)
         chunksize=100000,  # 批处理大小：10万行/次 (根据内存调整)
         log_level="INFO",
-        log_file="data/result/标题+摘要版本/标题+摘要版本.log",  # 日志文件路径
+        log_file="data/result/标题+摘要版本+window_size=3/标题+摘要版本+window_size=3.log",  # 日志文件路径
         skip_if_exists=True,  # 断点续跑开关：True=跳过已完成阶段，False=强制重跑
         # [列名映射] (如果您的真实数据列名不同，请在此修改)
         col_id="申请号",
