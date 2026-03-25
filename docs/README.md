@@ -26,7 +26,13 @@
 4. [STAT_改造说明.md](./STAT_改造说明.md)
    - 第二阶段从 notebook 到脚本化总控的改造说明
 
-5. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
+5. [STAGE2_FLOW_DETAILED.md](./STAGE2_FLOW_DETAILED.md)
+   - 第二阶段每一步的输入、输出与具体处理内容
+
+6. [STAGE2_REFACTOR_PLAN.md](./STAGE2_REFACTOR_PLAN.md)
+   - 第二阶段重构方案：共享预处理层与每实验分析层拆分
+
+7. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
    - 性能优化与验证思路
 
 ---

@@ -92,7 +92,11 @@ def _collect_extra_rows(
 ) -> Any:
     frames: List[Any] = []
     csv_paths = list_csv_files(raw_patent_dir)
-    logger.info("开始回捞原始专利，共 %s 个 CSV 文件，目标申请号数=%s", len(csv_paths), len(target_ids))
+    logger.info(
+        "开始回捞原始专利，共 %s 个 CSV 文件，目标申请号数=%s，坏行将直接跳过",
+        len(csv_paths),
+        len(target_ids),
+    )
     for file_index, csv_path in enumerate(csv_paths, start=1):
         logger.info("扫描原始专利文件 [%s/%s]: %s", file_index, len(csv_paths), repo_relative(csv_path))
         reader = read_csv_with_fallback(
@@ -100,6 +104,8 @@ def _collect_extra_rows(
             dtype={ID_COL: "string"},
             chunksize=chunksize,
             low_memory=False,
+            on_bad_lines="skip",
+            engine="python",
         )
         file_rows = 0
         matched_rows = 0

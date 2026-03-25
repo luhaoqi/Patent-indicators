@@ -28,6 +28,8 @@ def read_csv_with_fallback(
     usecols: Optional[Iterable[str]] = None,
     chunksize: Optional[int] = None,
     low_memory: bool = False,
+    on_bad_lines: str = "error",
+    engine: Optional[str] = None,
 ) -> Any:
     last_error: Optional[Exception] = None
     for encoding in READ_ENCODINGS:
@@ -38,8 +40,12 @@ def read_csv_with_fallback(
                 "usecols": list(usecols) if usecols is not None else None,
                 "chunksize": chunksize,
                 "encoding": encoding,
-                "low_memory": low_memory,
+                "on_bad_lines": on_bad_lines,
             }
+            if engine is not None:
+                read_kwargs["engine"] = engine
+            if engine != "python":
+                read_kwargs["low_memory"] = low_memory
             return pd.read_csv(**read_kwargs)
         except Exception as exc:
             last_error = exc
