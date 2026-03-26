@@ -181,6 +181,31 @@ def build_company_special_panel(
     return company_agg
 
 
+def build_company_special_panel_from_ucc_set(
+    patent_df: pd.DataFrame,
+    special_uccs: Iterable[str],
+    *,
+    quality_threshold: float,
+    ucc_col: str = PATENT_UCC_COL,
+    quality_col: str = QUALITY_COL,
+) -> pd.DataFrame:
+    df = prepare_valid_ucc_patents(patent_df, ucc_col=ucc_col, quality_col=quality_col)
+    special_ucc_set = {value for value in special_uccs if value and value not in INVALID_UCC_VALUES}
+    company_agg = (
+        df.groupby(ucc_col, dropna=False)
+        .agg(
+            total_patents=(quality_col, "size"),
+            high_q_count=(quality_col, lambda series: int((to_numeric(series).fillna(-np.inf) >= quality_threshold).sum())),
+            mean_quality=(quality_col, "mean"),
+            max_quality=(quality_col, "max"),
+        )
+        .reset_index()
+    )
+    company_agg["log_total_patents"] = np.log1p(company_agg["total_patents"])
+    company_agg["is_special"] = company_agg[ucc_col].isin(special_ucc_set).astype(int)
+    return company_agg
+
+
 def attach_special_year_labels(
     patent_df: pd.DataFrame,
     firm_year_special: pd.DataFrame,

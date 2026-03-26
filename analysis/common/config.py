@@ -8,13 +8,7 @@ from typing import Any, Optional, Sequence
 @dataclass(frozen=True)
 class Stage2InputsConfig:
     stage1_dir: str
-    raw_patent_dir: str
-    special_list_path: Optional[str] = None
-    financial_data_path: Optional[str] = None
-    ucc_panel_path: Optional[str] = None
-    listedco_parent_path: Optional[str] = None
-    subsidiary_mapping_path: Optional[str] = None
-    subjoint_csv_path: Optional[str] = None
+    shared_root: str
 
 
 @dataclass(frozen=True)
@@ -25,7 +19,7 @@ class DiagnosticsConfig:
 
 
 @dataclass(frozen=True)
-class MainEnrichedConfig:
+class ExperimentPatentPanelConfig:
     chunksize: int = 100000
 
 
@@ -65,7 +59,7 @@ class Stage2Config:
     output_root: str
     inputs: Stage2InputsConfig
     diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
-    build_main_enriched: MainEnrichedConfig = field(default_factory=MainEnrichedConfig)
+    build_experiment_patent_panel: ExperimentPatentPanelConfig = field(default_factory=ExperimentPatentPanelConfig)
     analyze_quality_basic: QualityBasicConfig = field(default_factory=QualityBasicConfig)
     analyze_special_firms: SpecialFirmsConfig = field(default_factory=SpecialFirmsConfig)
     build_firm_year_innovation: InnovationConfig = field(default_factory=InnovationConfig)
@@ -81,14 +75,8 @@ class Stage2Config:
         *,
         experiment_id: str,
         stage1_dir: Path,
-        raw_patent_dir: Path,
+        shared_root: Path,
         output_root: str,
-        special_list_path: Optional[Path],
-        financial_data_path: Optional[Path],
-        ucc_panel_path: Optional[Path],
-        listedco_parent_path: Optional[Path],
-        subsidiary_mapping_path: Optional[Path],
-        subjoint_csv_path: Optional[Path],
         topk_values: Sequence[int],
         yearly_top_vocab_k: int,
         max_year_gap: int,
@@ -112,20 +100,14 @@ class Stage2Config:
             output_root=output_root,
             inputs=Stage2InputsConfig(
                 stage1_dir=str(stage1_dir),
-                raw_patent_dir=str(raw_patent_dir),
-                special_list_path=str(special_list_path) if special_list_path is not None else None,
-                financial_data_path=str(financial_data_path) if financial_data_path is not None else None,
-                ucc_panel_path=str(ucc_panel_path) if ucc_panel_path is not None else None,
-                listedco_parent_path=str(listedco_parent_path) if listedco_parent_path is not None else None,
-                subsidiary_mapping_path=str(subsidiary_mapping_path) if subsidiary_mapping_path is not None else None,
-                subjoint_csv_path=str(subjoint_csv_path) if subjoint_csv_path is not None else None,
+                shared_root=str(shared_root),
             ),
             diagnostics=DiagnosticsConfig(
                 topk_values=tuple(int(value) for value in topk_values),
                 yearly_top_vocab_k=int(yearly_top_vocab_k),
                 max_year_gap=int(max_year_gap),
             ),
-            build_main_enriched=MainEnrichedConfig(chunksize=int(chunksize)),
+            build_experiment_patent_panel=ExperimentPatentPanelConfig(chunksize=int(chunksize)),
             analyze_quality_basic=QualityBasicConfig(
                 exclude_years=grouped_exclude_years,
                 quality_min=float(quality_min),

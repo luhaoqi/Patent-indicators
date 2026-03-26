@@ -23,6 +23,7 @@ from patent_quality.project_paths import (
 PathLike = Union[str, Path]
 
 REPO_ROOT = get_project_root()
+DEFAULT_SHARED_ROOT = "outputs/shared"
 
 
 def get_repo_root() -> Path:
@@ -107,6 +108,54 @@ def build_experiment_paths(experiment_id: str, output_root: PathLike = DEFAULT_O
         figures_dir=layout.stage2_dir / "figures",
         tables_dir=layout.stage2_dir / "tables",
         logs_dir=layout.stage2_dir / "logs",
+    )
+
+
+@dataclass(frozen=True)
+class SharedPaths:
+    root: Path
+    patent_master_dir: Path
+    special_firm_labels_dir: Path
+    ucc_mapping_dir: Path
+    financial_panel_dir: Path
+    metadata_dir: Path
+    logs_dir: Path
+
+    def ensure_dirs(self) -> None:
+        for directory in (
+            self.root,
+            self.patent_master_dir,
+            self.special_firm_labels_dir,
+            self.ucc_mapping_dir,
+            self.financial_panel_dir,
+            self.metadata_dir,
+            self.logs_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def to_metadata(self) -> Dict[str, str]:
+        return {
+            "root": repo_relative(self.root),
+            "patent_master_dir": repo_relative(self.patent_master_dir),
+            "special_firm_labels_dir": repo_relative(self.special_firm_labels_dir),
+            "ucc_mapping_dir": repo_relative(self.ucc_mapping_dir),
+            "financial_panel_dir": repo_relative(self.financial_panel_dir),
+            "metadata_dir": repo_relative(self.metadata_dir),
+            "logs_dir": repo_relative(self.logs_dir),
+        }
+
+
+def build_shared_paths(shared_root: PathLike = DEFAULT_SHARED_ROOT) -> SharedPaths:
+    root = resolve_repo_path(shared_root)
+    assert root is not None
+    return SharedPaths(
+        root=root,
+        patent_master_dir=root / "patent_master",
+        special_firm_labels_dir=root / "special_firm_labels",
+        ucc_mapping_dir=root / "ucc_mapping",
+        financial_panel_dir=root / "financial_panel",
+        metadata_dir=root / "metadata",
+        logs_dir=root / "logs",
     )
 
 

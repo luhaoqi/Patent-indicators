@@ -14,7 +14,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from common.io import build_logger, write_json  # noqa: E402
-from common.paths import build_experiment_paths, repo_relative, resolve_repo_path  # noqa: E402
+from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 from common.plotting import save_figure, set_chinese_font  # noqa: E402
 from common.tables import export_table  # noqa: E402
 
@@ -22,9 +22,10 @@ from common.tables import export_table  # noqa: E402
 def run_regressions(
     *,
     experiment_id: str,
-    financial_data_path: Path,
     output_root: str = "outputs/experiments",
     firm_year_innovation_path: Optional[Path] = None,
+    financial_panel_path: Optional[Path] = None,
+    shared_root: str = "outputs/shared",
     year_min: int = 2000,
     year_max: int = 2023,
 ) -> dict[str, object]:
@@ -39,23 +40,25 @@ def run_regressions(
     logger.info("读取 firm_year_innovation: %s", repo_relative(innovation_path))
     innov = pd.read_parquet(innovation_path)
     innov = _normalize_innovation_frame(innov)
-    logger.info("读取财务数据: %s", repo_relative(financial_data_path))
-    fin = pd.read_stata(financial_data_path)
-    logger.info("innovation rows=%s, financial rows=%s", len(innov), len(fin))
 
-    need_cols = ["stkcd", "Accper", "roa", "roe", "tq", "asset", "liability", "finlev", "gassets", "soe"]
-    missing = [column for column in need_cols if column not in fin.columns]
-    if missing:
-        raise KeyError(f"财务数据缺少列: {missing}")
+    effective_financial_panel_path = financial_panel_path
+    if effective_financial_panel_path is None:
+        shared_paths = build_shared_paths(shared_root)
+        candidate = shared_paths.financial_panel_dir / "financial_annual_clean.parquet"
+        if candidate.exists():
+            effective_financial_panel_path = candidate
 
-    fin["Accper"] = pd.to_datetime(fin["Accper"], errors="coerce")
-    fin["year"] = fin["Accper"].dt.year
-    fin["month"] = fin["Accper"].dt.month
-    fin["day"] = fin["Accper"].dt.day
-    fin_annual = fin[(fin["month"] == 12) & (fin["day"] == 31)].copy()
+    if effective_financial_panel_path is None or not effective_financial_panel_path.exists():
+        raise FileNotFoundError("缺少共享财务年报面板，请先运行 run_shared_prep.py 生成 shared financial_panel")
+    logger.info("读取共享财务年报面板: %s", repo_relative(effective_financial_panel_path))
+    fin_annual = pd.read_parquet(effective_financial_panel_path)
+    if "year" not in fin_annual.columns and "Accper" in fin_annual.columns:
+        fin_annual["Accper"] = pd.to_datetime(fin_annual["Accper"], errors="coerce")
+        fin_annual["year"] = fin_annual["Accper"].dt.year
+    if "year" not in fin_annual.columns:
+        raise KeyError("共享财务年报面板缺少 year 列")
+    fin_annual["year"] = pd.to_numeric(fin_annual["year"], errors="coerce")
     fin_annual = fin_annual[(fin_annual["year"] >= year_min) & (fin_annual["year"] <= year_max)].copy()
-    fin_annual["stkcd"] = pd.to_numeric(fin_annual["stkcd"], errors="coerce").astype("Int64").astype("string").str.zfill(6)
-    fin_annual = fin_annual.sort_values(["stkcd", "Accper"]).drop_duplicates(["stkcd", "year"], keep="last")
     logger.info("财务年报样本整理后 rows=%s", len(fin_annual))
 
     logger.info("开始合并财务数据与创新指标")
@@ -179,7 +182,7 @@ def run_regressions(
     summary = {
         "experiment_id": experiment_id,
         "firm_year_innovation_path": repo_relative(innovation_path),
-        "financial_data_path": repo_relative(financial_data_path),
+        "financial_panel_path": repo_relative(effective_financial_panel_path) if effective_financial_panel_path is not None else None,
         "regression_panel_path": repo_relative(regression_panel_path),
         "table_outputs": [repo_relative(summary_csv), repo_relative(summary_tex)] + text_outputs,
         "figure_outputs": [repo_relative(coefficient_fig)] if coefficient_fig is not None else [],
@@ -219,9 +222,10 @@ def _slugify(text: str) -> str:
 def parse_args() -> ArgumentParser:
     parser = ArgumentParser(description="根据 firm_year_innovation 和财务面板运行固定效应回归")
     parser.add_argument("--experiment-id", required=True, help="实验 ID")
-    parser.add_argument("--financial-data-path", required=True, help="上市公司财务数据 dta")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument("--firm-year-innovation-path", help="firm_year_innovation.parquet 路径")
+    parser.add_argument("--financial-panel-path", help="共享 financial_annual_clean.parquet 路径")
+    parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--year-min", type=int, default=2000, help="财务样本最小年份")
     parser.add_argument("--year-max", type=int, default=2023, help="财务样本最大年份")
     return parser
@@ -231,9 +235,10 @@ def main() -> None:
     args = parse_args().parse_args()
     run_regressions(
         experiment_id=args.experiment_id,
-        financial_data_path=resolve_repo_path(args.financial_data_path),  # type: ignore[arg-type]
         output_root=args.output_root,
         firm_year_innovation_path=resolve_repo_path(args.firm_year_innovation_path) if args.firm_year_innovation_path else None,
+        financial_panel_path=resolve_repo_path(args.financial_panel_path) if args.financial_panel_path else None,
+        shared_root=args.shared_root,
         year_min=args.year_min,
         year_max=args.year_max,
     )

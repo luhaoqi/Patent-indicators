@@ -10,8 +10,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from analysis.common.config import (  # noqa: E402
     DiagnosticsConfig,
+    ExperimentPatentPanelConfig,
     InnovationConfig,
-    MainEnrichedConfig,
     QualityBasicConfig,
     RegressionConfig,
     SpecialFirmsConfig,
@@ -35,20 +35,14 @@ def main():
         output_root=OUTPUT_ROOT,
         inputs=Stage2InputsConfig(
             stage1_dir=str(layout.stage1_dir),
-            raw_patent_dir=str(project_root / "data/raw/中国专利分年份保存数据1985-2025"),
-            special_list_path=str(project_root / "analysis/graph/科创企业名单2024.dta"),
-            financial_data_path=str(project_root / "analysis/公司财务/数据/上市公司财务数据/上市公司财务数据.dta"),
-            ucc_panel_path=str(project_root / "analysis/公司财务/数据/上市公司（包括所有子公司）各年度的统一社会信用代码列表.csv"),
-            listedco_parent_path=str(project_root / "analysis/公司财务/数据/上市公司基本信息年度表/上市公司统一社会信用代码.csv"),
-            subsidiary_mapping_path=str(project_root / "analysis/公司财务/数据/爱企查结果/上市公司子公司对应统一社会信用代码.csv"),
-            subjoint_csv_path=str(project_root / "analysis/公司财务/数据/上市公司子公司联营合营情况表/STK_NotesSubJoint_merged.csv"),
+            shared_root=str(project_root / "outputs/shared"),
         ),
         diagnostics=DiagnosticsConfig(
             topk_values=TOPK_VALUES,
             yearly_top_vocab_k=50,
             max_year_gap=5,
         ),
-        build_main_enriched=MainEnrichedConfig(
+        build_experiment_patent_panel=ExperimentPatentPanelConfig(
             chunksize=100000,
         ),
         analyze_quality_basic=QualityBasicConfig(
@@ -85,14 +79,8 @@ def main():
     summary = run_stage2(
         experiment_id=stage2_config.experiment_id,
         stage1_dir=layout.stage1_dir,
-        raw_patent_dir=Path(stage2_config.inputs.raw_patent_dir),
+        shared_root=stage2_config.inputs.shared_root,
         output_root=stage2_config.output_root,
-        special_list_path=Path(stage2_config.inputs.special_list_path) if stage2_config.inputs.special_list_path else None,
-        financial_data_path=Path(stage2_config.inputs.financial_data_path) if stage2_config.inputs.financial_data_path else None,
-        ucc_panel_path=Path(stage2_config.inputs.ucc_panel_path) if stage2_config.inputs.ucc_panel_path else None,
-        listedco_parent_path=Path(stage2_config.inputs.listedco_parent_path) if stage2_config.inputs.listedco_parent_path else None,
-        subsidiary_mapping_path=Path(stage2_config.inputs.subsidiary_mapping_path) if stage2_config.inputs.subsidiary_mapping_path else None,
-        subjoint_csv_path=Path(stage2_config.inputs.subjoint_csv_path) if stage2_config.inputs.subjoint_csv_path else None,
         topk_values=stage2_config.diagnostics.topk_values,
         yearly_top_vocab_k=stage2_config.diagnostics.yearly_top_vocab_k,
         max_year_gap=stage2_config.diagnostics.max_year_gap,
@@ -107,7 +95,7 @@ def main():
         innovation_quality_cap=stage2_config.build_firm_year_innovation.quality_cap,
         regression_year_min=stage2_config.run_regressions.year_min,
         regression_year_max=stage2_config.run_regressions.year_max,
-        chunksize=stage2_config.build_main_enriched.chunksize,
+        chunksize=stage2_config.build_experiment_patent_panel.chunksize,
     )
 
     print("\n" + "=" * 60)

@@ -25,7 +25,7 @@ def analyze_quality_basic(
     *,
     experiment_id: str,
     output_root: str = "outputs/experiments",
-    main_enriched_path: Optional[Path] = None,
+    experiment_patent_panel_path: Optional[Path] = None,
     exclude_years: Sequence[int] = (1985, 1986),
     quality_min: float = 1e-5,
     bs_min: float = 1e-6,
@@ -37,8 +37,10 @@ def analyze_quality_basic(
     logger = build_logger(f"analyze_quality_basic.{experiment_id}", paths.logs_dir / "analyze_quality_basic.log")
     set_chinese_font(logger=logger)
 
-    patent_path = main_enriched_path or (paths.data_dir / "main_enriched.parquet")
-    logger.info("读取 main_enriched: %s", repo_relative(patent_path))
+    patent_path = experiment_patent_panel_path or (paths.data_dir / "experiment_patent_panel.parquet")
+    if not patent_path.exists():
+        raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
+    logger.info("读取专利实验面板: %s", repo_relative(patent_path))
     patent_df = pd.read_parquet(patent_path)
     logger.info("开始按阈值过滤专利样本")
     filtered = filter_patents(
@@ -197,7 +199,7 @@ def analyze_quality_basic(
 
     summary = {
         "experiment_id": experiment_id,
-        "main_enriched_path": repo_relative(patent_path),
+        "experiment_patent_panel_path": repo_relative(patent_path),
         "figure_paths": [
             repo_relative(scatter_path),
             repo_relative(dist_path),
@@ -224,7 +226,7 @@ def parse_args() -> ArgumentParser:
     parser = ArgumentParser(description="输出专利质量的基础图表和描述统计")
     parser.add_argument("--experiment-id", required=True, help="实验 ID")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
-    parser.add_argument("--main-enriched-path", help="main_enriched.parquet 路径")
+    parser.add_argument("--experiment-patent-panel-path", help="experiment_patent_panel.parquet 路径")
     parser.add_argument("--exclude-years", nargs="*", type=int, default=[1985, 1986], help="排除年份")
     parser.add_argument("--quality-min", type=float, default=1e-5, help="Quality_q 最小阈值")
     parser.add_argument("--bs-min", type=float, default=1e-6, help="BS 最小阈值")
@@ -237,7 +239,7 @@ def main() -> None:
     analyze_quality_basic(
         experiment_id=args.experiment_id,
         output_root=args.output_root,
-        main_enriched_path=resolve_repo_path(args.main_enriched_path) if args.main_enriched_path else None,
+        experiment_patent_panel_path=resolve_repo_path(args.experiment_patent_panel_path) if args.experiment_patent_panel_path else None,
         exclude_years=args.exclude_years,
         quality_min=args.quality_min,
         bs_min=args.bs_min,

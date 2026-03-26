@@ -13,7 +13,7 @@ if str(CURRENT_DIR) not in sys.path:
 import pandas as pd  # noqa: E402
 
 from common.io import build_logger, read_csv_with_fallback, write_json  # noqa: E402
-from common.paths import build_experiment_paths, repo_relative, resolve_repo_path  # noqa: E402
+from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
 
 SEP = ";"
@@ -73,20 +73,14 @@ def _load_subsidiary_mapping(path: Path) -> Dict[str, str]:
     )
 
 
-def build_ucc_panel(
+def _build_ucc_panel_frame(
     *,
-    experiment_id: str,
-    output_root: str = "outputs/experiments",
     parent_csv_path: Path,
     subsidiary_mapping_path: Path,
     subjoint_csv_path: Path,
-    output_path: Optional[Path] = None,
-    chunksize: int = 300000,
-) -> Path:
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
-    paths.ensure_dirs()
-    logger = build_logger(f"build_ucc_panel.{experiment_id}", paths.logs_dir / "build_ucc_panel.log")
-
+    chunksize: int,
+    logger,
+) -> pd.DataFrame:
     parent = _load_parent_table(parent_csv_path)
     name_to_ucc = _load_subsidiary_mapping(subsidiary_mapping_path)
     logger.info("母公司行数=%s, 唯一证券ID=%s", len(parent), parent["stkid"].nunique())
@@ -156,7 +150,111 @@ def build_ucc_panel(
             ucc_list = normalize_seps(f"{parent_ucc}{SEP}{child_str}" if child_str else parent_ucc)
             out_rows.append([stkid, shortname, year, ucc_list])
 
-    out_df = pd.DataFrame(out_rows, columns=["证券ID", "公司简称", "年份", "统一社会信用代码列表"])
+    return pd.DataFrame(out_rows, columns=["证券ID", "公司简称", "年份", "统一社会信用代码列表"])
+
+
+def _explode_ucc_panel(out_df: pd.DataFrame) -> pd.DataFrame:
+    exploded = out_df.rename(
+        columns={
+            "证券ID": "Stkid",
+            "公司简称": "ShortName",
+            "年份": "year",
+            "统一社会信用代码列表": "UCC_list",
+        }
+    ).copy()
+    exploded["year"] = pd.to_numeric(exploded["year"], errors="coerce").astype("Int64")
+    exploded["UCC_list"] = exploded["UCC_list"].astype("string").fillna("").str.strip()
+    exploded = exploded.assign(UCC=exploded["UCC_list"].str.split(SEP)).explode("UCC")
+    exploded["UCC"] = exploded["UCC"].astype("string").fillna("").str.strip()
+    exploded = exploded[
+        exploded["year"].notna()
+        & (exploded["UCC"] != "")
+        & (exploded["UCC"].str.lower() != "nan")
+    ].copy()
+    exploded["year"] = exploded["year"].astype(int)
+    return exploded[["Stkid", "ShortName", "year", "UCC"]].drop_duplicates()
+
+
+def build_ucc_mapping(
+    *,
+    parent_csv_path: Path,
+    subsidiary_mapping_path: Path,
+    subjoint_csv_path: Path,
+    shared_root: str = "outputs/shared",
+    chunksize: int = 300000,
+) -> Dict[str, Path]:
+    shared_paths = build_shared_paths(shared_root)
+    shared_paths.ensure_dirs()
+    logger = build_logger("build_ucc_mapping", shared_paths.logs_dir / "build_ucc_mapping.log")
+
+    out_df = _build_ucc_panel_frame(
+        parent_csv_path=parent_csv_path,
+        subsidiary_mapping_path=subsidiary_mapping_path,
+        subjoint_csv_path=subjoint_csv_path,
+        chunksize=chunksize,
+        logger=logger,
+    )
+    exploded = _explode_ucc_panel(out_df)
+
+    ucc_panel_path = shared_paths.ucc_mapping_dir / "ucc_panel.csv"
+    exploded_path = shared_paths.ucc_mapping_dir / "ucc_exploded.parquet"
+    metadata_path = shared_paths.ucc_mapping_dir / "metadata.json"
+
+    out_df.to_csv(ucc_panel_path, index=False, encoding="utf-8-sig")
+    exploded.to_parquet(exploded_path, index=False)
+    write_json(
+        metadata_path,
+        {
+            "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            "inputs": {
+                "parent_csv_path": repo_relative(parent_csv_path),
+                "subsidiary_mapping_path": repo_relative(subsidiary_mapping_path),
+                "subjoint_csv_path": repo_relative(subjoint_csv_path),
+            },
+            "outputs": {
+                "ucc_panel": repo_relative(ucc_panel_path),
+                "ucc_exploded": repo_relative(exploded_path),
+            },
+            "row_counts": {
+                "ucc_panel": int(len(out_df)),
+                "ucc_exploded": int(len(exploded)),
+            },
+            "key_fields": {
+                "ucc_panel": ["证券ID", "年份"],
+                "ucc_exploded": ["Stkid", "year", "UCC"],
+            },
+            "year_min": int(out_df["年份"].min()) if not out_df.empty else None,
+            "year_max": int(out_df["年份"].max()) if not out_df.empty else None,
+        },
+    )
+    logger.info("共享 UCC 面板输出: %s", repo_relative(ucc_panel_path))
+    return {
+        "ucc_panel_path": ucc_panel_path,
+        "ucc_exploded_path": exploded_path,
+        "metadata_path": metadata_path,
+    }
+
+
+def build_ucc_panel(
+    *,
+    experiment_id: str,
+    output_root: str = "outputs/experiments",
+    parent_csv_path: Path,
+    subsidiary_mapping_path: Path,
+    subjoint_csv_path: Path,
+    output_path: Optional[Path] = None,
+    chunksize: int = 300000,
+) -> Path:
+    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths.ensure_dirs()
+    logger = build_logger(f"build_ucc_panel.{experiment_id}", paths.logs_dir / "build_ucc_panel.log")
+    out_df = _build_ucc_panel_frame(
+        parent_csv_path=parent_csv_path,
+        subsidiary_mapping_path=subsidiary_mapping_path,
+        subjoint_csv_path=subjoint_csv_path,
+        chunksize=chunksize,
+        logger=logger,
+    )
     final_output = output_path or (paths.data_dir / "ucc_panel.csv")
     final_output.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(final_output, index=False, encoding="utf-8-sig")

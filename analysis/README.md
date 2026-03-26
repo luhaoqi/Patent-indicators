@@ -1,80 +1,170 @@
 # 第二阶段脚本说明
 
-`analysis/` 目录现在承担的是**第二阶段（stage2）完整脚本化流程**，不再只是 notebook 辅助目录。
+`analysis/` 目录现在承担的是第二阶段的两层脚本化流程：
 
-第二阶段的目标是：  
-给定某个实验的 `stage1` 输出目录，自动完成：
+- **shared prep**
+  一次性生成 `outputs/shared/*` 下的静态底座
+- **per-experiment stage2**
+  对每个实验消费 `stage1` 结果和共享产物，输出到 `outputs/experiments/<experiment_id>/stage2/`
 
-- diagnostics
-- 主分析表构造
-- 专利层基础图表与描述统计
-- 特殊企业 / 专精特新企业对比
-- `UCC` 面板构造
-- 公司年度创新指数构造
-- 财务面板固定效应回归
-
-所有结果统一写到：
-
-```text
-outputs/experiments/<experiment_id>/stage2/
-```
+如果和旧文档冲突，请以根目录 [README.md](../README.md) 和当前脚本实现为准。
 
 ---
 
-## 1. 第二阶段主入口
+## 1. 当前主入口
 
-### 单实验总控
+### shared prep
+
+- [analysis/run_shared_prep.py](./run_shared_prep.py)
+  一次性生成：
+  - `outputs/shared/patent_master/`
+  - `outputs/shared/special_firm_labels/`
+  - `outputs/shared/ucc_mapping/`
+  - `outputs/shared/financial_panel/`
+
+- [analysis/verify_shared_prep.py](./verify_shared_prep.py)
+  校验共享产物是否存在、字段是否齐全、主键是否唯一
+
+### 单实验 stage2
 
 - [analysis/run_stage2_pipeline.py](./run_stage2_pipeline.py)
+  当前单实验 stage2 主入口
 
-作用：
-- 串行调用完整 `stage2`
-- 自动记录 `logs/` 和 `metadata/`
-- 根据可用输入自动跳过某些可选步骤
-
-### 批量入口
-
-- [analysis/run_stage2_batch.py](./run_stage2_batch.py)
-
-作用：
-- 读取 manifest
-- 批量对多个 `experiment_id` 运行 `stage2`
-- 每个实验独立写入自己的 `stage2/` 目录
-
-### 单实验一键入口
-
-仓库根目录下还有：
+- [analysis/run_stage2_experiment.py](./run_stage2_experiment.py)
+  对 `run_stage2_pipeline.py` 的薄包装
 
 - [run_stage2.py](../run_stage2.py)
+  根目录的一键单实验入口，适合手改顶部参数后直接运行
 
-这个入口适合像 `run_full.py` 一样在顶部集中改参数后直接运行。
+### 批量 stage2
+
+- [analysis/run_stage2_batch.py](./run_stage2_batch.py)
+  按 manifest 批量跑多个实验
 
 ---
 
-## 2. 公共模块
+## 2. stage2 当前总流程
+
+[analysis/run_stage2_pipeline.py](./run_stage2_pipeline.py) 现在按 6 步执行：
+
+1. `diagnostics`
+2. `build_experiment_patent_panel`
+3. `analyze_quality_basic`
+4. `analyze_special_firms`
+5. `build_firm_year_innovation`
+6. `run_regressions`
+
+这是**严格 shared-root 模式**：
+
+- 必须存在 `stage1/patent_quality_output.csv`
+- 必须预先存在 `outputs/shared/*`
+- stage2 内部不再扫描原始专利目录
+- stage2 内部不再清洗原始财务数据
+- stage2 内部不再重建 UCC 面板
+- stage2 内部不再重建特殊企业标签底座
+
+---
+
+## 3. shared prep 子脚本
+
+### `build_main_enriched.py`
+
+当前承担两件事：
+
+- `build_patent_master()`
+  从原始专利 CSV 生成共享 `patent_master`
+- `build_experiment_patent_panel()`
+  将 `stage1/patent_quality_output.csv` 与共享 `patent_master` 轻量拼接
+
+关键输出：
+
+- `outputs/shared/patent_master/patent_master.parquet`
+- `outputs/experiments/<experiment_id>/stage2/data/experiment_patent_panel.parquet`
+
+### `build_ucc_panel.py`
+
+当前提供：
+
+- `build_ucc_mapping()`
+  生成共享：
+  - `outputs/shared/ucc_mapping/ucc_panel.csv`
+  - `outputs/shared/ucc_mapping/ucc_exploded.parquet`
+
+### `shared_prep.py`
+
+当前提供：
+
+- `build_special_firm_labels()`
+- `build_financial_annual_panel()`
+- `verify_shared_prep()`
+
+---
+
+## 4. per-experiment stage2 子脚本
+
+### `analyze_quality_basic.py`
+
+输入：
+- `stage2/data/experiment_patent_panel.parquet`
+
+输出：
+- 专利层基础图表和描述统计
+
+### `analyze_special_firms.py`
+
+输入：
+- `stage2/data/experiment_patent_panel.parquet`
+- `outputs/shared/special_firm_labels/firm_year_special_labels.parquet`
+- `outputs/shared/special_firm_labels/special_ucc_set.parquet`
+
+输出：
+- 特殊企业静态、动态、A/B/C 分组分析结果
+
+### `build_firm_year_innovation.py`
+
+输入：
+- `stage2/data/experiment_patent_panel.parquet`
+- `outputs/shared/ucc_mapping/ucc_exploded.parquet`
+
+输出：
+- `stage2/data/firm_year_innovation.parquet`
+
+### `run_regressions.py`
+
+输入：
+- `stage2/data/firm_year_innovation.parquet`
+- `outputs/shared/financial_panel/financial_annual_clean.parquet`
+
+输出：
+- `stage2/data/regression_panel.parquet`
+- 回归表和系数图
+
+---
+
+## 5. 公共模块
 
 ### `analysis/common/paths.py`
 
 作用：
-- 统一 experiment 目录定位
+- 统一 experiment 路径
+- 统一 shared 路径
 - 解析仓库内相对路径
-- 生成 `stage2/data`、`figures`、`tables` 等目录对象
 
 ### `analysis/common/io.py`
 
 作用：
-- 带编码回退的 CSV 读取
+- CSV 读取
 - 日志构建
 - JSON metadata 写入
 
 ### `analysis/common/config.py`
 
 作用：
-- 统一 `stage2` 配置结构
+- 统一 stage2 配置结构
 - 按任务分组保存参数：
   - `inputs`
   - `diagnostics`
-  - `build_main_enriched`
+  - `build_experiment_patent_panel`
   - `analyze_quality_basic`
   - `analyze_special_firms`
   - `build_firm_year_innovation`
@@ -84,189 +174,35 @@ outputs/experiments/<experiment_id>/stage2/
 
 作用：
 - 样本过滤
-- 描述统计
-- 特殊企业静态 / 动态标签构造
+- 特殊企业标签构造
 - 公司层、公司年层、A/B/C 分组聚合
-- 分组对比表构造
-
-### `analysis/common/plotting.py`
-
-作用：
-- 中文字体设置
-- 图片保存
-
-### `analysis/common/tables.py`
-
-作用：
-- 表格格式化
-- `csv` / `tex` 双落盘
 
 ### `analysis/common/diagnostics.py`
 
 作用：
-- 封装第一阶段 diagnostics 计算逻辑
-
----
-
-## 3. 第二阶段每个脚本做什么
-
-### `run_diagnostics.py`
-
-输入：
-- `stage1/df/`
-- `stage1/vectors/`
-- `stage1/vocab/`
-
-输出：
-- `stage2/diagnostics/*.csv`
-
-作用：
-- 统一运行 diagnostics，并标准化保存输出。
-
-### `build_main_enriched.py`
-
-输入：
-- `stage1/patent_quality_output.csv`
-- 原始按年专利 CSV
-
-输出：
-- `stage2/data/patent_quality_output.csv`
-- `stage2/data/main.parquet`
-- `stage2/data/extra_all_dedup.parquet`
-- `stage2/data/main_enriched.parquet`
-
-作用：
-- 把第一阶段结果和原始专利补充字段拼接成第二阶段主表。
-
-### `analyze_quality_basic.py`
-
-输入：
-- `stage2/data/main_enriched.parquet`
-
-输出：
-- `stage2/figures/fig_quality_*.png`
-- `stage2/tables/tbl_desc_patent_quality.*`
-- `stage2/tables/tbl_quality_citation_ols.*`
-
-作用：
-- 输出专利层基础图表和描述统计。
-
-### `analyze_special_firms.py`
-
-输入：
-- `stage2/data/main_enriched.parquet`
-- 特殊企业名单 `.dta`
-
-输出：
-- `stage2/data/company_special_panel.parquet`
-- `stage2/data/company_year_special.parquet`
-- `stage2/data/company_year_abc.parquet`
-- `stage2/tables/tbl_firm_compare.*`
-- `stage2/tables/tbl_firmyear_compare.*`
-- `stage2/figures/fig_special_*.png`
-- `stage2/figures/fig_abc_*.png`
-
-作用：
-- 输出静态企业口径、动态 `firm-year` 口径和 A/B/C 分组分析结果。
-
-### `build_ucc_panel.py`
-
-输入：
-- 母公司统一社会信用代码表
-- 子公司名称映射表
-- 联营合营明细表
-
-输出：
-- `stage2/data/ucc_panel.csv`
-
-作用：
-- 生成上市公司（包含子公司）的年度统一社会信用代码面板。
-
-### `build_firm_year_innovation.py`
-
-输入：
-- `stage2/data/main_enriched.parquet`
-- `stage2/data/ucc_panel.csv` 或外部 UCC 面板
-
-输出：
-- `stage2/data/firm_year_innovation.parquet`
-
-作用：
-- 计算公司-年份创新指标，当前默认方法是 `TopK Mean + 年内标准化`。
-
-### `run_regressions.py`
-
-输入：
-- `stage2/data/firm_year_innovation.parquet`
-- 财务面板 `.dta`
-
-输出：
-- `stage2/data/regression_panel.parquet`
-- `stage2/tables/tbl_regression_summary.*`
-- `stage2/tables/reg_*.txt`
-- `stage2/figures/fig_regression_coefficients.png`
-
-作用：
-- 运行固定效应回归并输出摘要结果。
-
----
-
-## 4. diagnostics 独立脚本
-
-以下脚本仍然保留，也可以单独运行：
-
-- `calc_avg_vocab_usage.py`
-- `calc_df_pair_sum.py`
-- `calc_topk_df_pair_sum.py`
-- `calc_yearly_top_vocab.py`
-- `calc_yearly_vocab_size.py`
-
-这些脚本主要直接读取 `stage1` 中间产物，用于做诊断、停用词检查和 TopK 影响分析。  
-但在常规使用中，一般不需要单独手动调用，因为 `run_stage2_pipeline.py` 已经会统一调用它们。
-
----
-
-## 5. 目录结构
-
-```text
-outputs/experiments/<experiment_id>/stage2/
-  data/
-  diagnostics/
-  figures/
-  tables/
-  logs/
-  metadata/
-```
-
-其中最重要的 metadata 文件包括：
-
-- `stage2/metadata/stage2_config.json`
-- `stage2/metadata/build_main_enriched.json`
-- `stage2/metadata/analyze_quality_basic.json`
-- `stage2/metadata/analyze_special_firms.json`
-- `stage2/metadata/build_firm_year_innovation.json`
-- `stage2/metadata/run_regressions.json`
+- stage1 diagnostics 输出逻辑
 
 ---
 
 ## 6. 常用运行方式
 
-### 一键运行单实验
+先生成共享产物：
 
 ```bash
-python run_stage2.py
+python analysis/run_shared_prep.py
+python analysis/verify_shared_prep.py
 ```
 
-### 命令行运行单实验
+再跑单实验 stage2：
 
 ```bash
 python analysis/run_stage2_pipeline.py \
   --experiment-id 标题_摘要_window5 \
   --stage1-dir outputs/experiments/标题_摘要_window5/stage1 \
-  --raw-patent-dir data/raw/中国专利分年份保存数据1985-2025
+  --shared-root outputs/shared
 ```
 
-### 批量运行多个实验
+批量跑：
 
 ```bash
 python analysis/run_stage2_batch.py --manifest path/to/stage2_manifest.yaml
@@ -274,31 +210,16 @@ python analysis/run_stage2_batch.py --manifest path/to/stage2_manifest.yaml
 
 ---
 
-## 7. 参数组织方式
+## 7. 历史文档说明
 
-`stage2` 的参数现在按任务分组组织，而不是全部平铺：
+以下文档主要用于记录**旧版 stage2 流程**或重构过程，不再等同于当前实现：
 
-- `inputs`
-- `diagnostics`
-- `build_main_enriched`
-- `analyze_quality_basic`
-- `analyze_special_firms`
-- `build_firm_year_innovation`
-- `run_regressions`
+- [docs/STAGE2_FLOW_DETAILED.md](../docs/STAGE2_FLOW_DETAILED.md)
+- [docs/STAT_改造说明.md](../docs/STAT_改造说明.md)
+- [docs/STAGE2_REFACTOR_PLAN.md](../docs/STAGE2_REFACTOR_PLAN.md)
 
-这意味着：
-- 看入口文件时，能直接知道某个参数控制哪个步骤
-- 看实验目录时，能直接从 `stage2_config.json` 判断每张图、每张表对应的参数口径
+其中：
 
----
-
-## 8. notebook 的角色
-
-`analysis/graph/` 和 `analysis/公司财务/` 中的 notebook 现在主要保留作：
-
-- 历史分析记录
-- 临时探索
-- 结果检查
-
-当前常规研究流程不再依赖这些 notebook 作为主入口。  
-正式生成结果应以脚本和 experiment 目录下的输出为准。
+- `STAGE2_FLOW_DETAILED.md` 主要描述重构前的 7 步旧流程
+- `STAT_改造说明.md` 主要记录 notebook 向脚本化迁移时期的设计
+- `STAGE2_REFACTOR_PLAN.md` 是本次 shared prep 改造方案文档

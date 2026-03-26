@@ -19,18 +19,16 @@ from common.analysis import (  # noqa: E402
     QUALITY_COL,
     attach_special_year_labels,
     build_abc_summary_table,
-    build_company_special_panel,
+    build_company_special_panel_from_ucc_set,
     build_company_year_abc_panel,
     build_company_year_special_panel,
     build_event_study_frame,
-    build_firm_year_special_panel,
     build_group_comparison_table,
     filter_patents,
-    load_special_panel,
     to_numeric,
 )
 from common.io import build_logger, write_json  # noqa: E402
-from common.paths import build_experiment_paths, repo_relative, resolve_repo_path  # noqa: E402
+from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 from common.plotting import save_figure, set_chinese_font  # noqa: E402
 from common.tables import export_table  # noqa: E402
 
@@ -46,9 +44,11 @@ ABC_LABELS = {
 def analyze_special_firms(
     *,
     experiment_id: str,
-    special_list_path: Path,
     output_root: str = "outputs/experiments",
-    main_enriched_path: Optional[Path] = None,
+    experiment_patent_panel_path: Optional[Path] = None,
+    firm_year_special_labels_path: Optional[Path] = None,
+    special_ucc_set_path: Optional[Path] = None,
+    shared_root: str = "outputs/shared",
     exclude_years: Sequence[int] = (1985, 1986),
     quality_min: float = 1e-5,
     bs_min: float = 1e-6,
@@ -61,10 +61,36 @@ def analyze_special_firms(
     logger = build_logger(f"analyze_special_firms.{experiment_id}", paths.logs_dir / "analyze_special_firms.log")
     set_chinese_font(logger=logger)
 
-    patent_path = main_enriched_path or (paths.data_dir / "main_enriched.parquet")
+    patent_path = experiment_patent_panel_path or (paths.data_dir / "experiment_patent_panel.parquet")
+    if not patent_path.exists():
+        raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
     patent_df = pd.read_parquet(patent_path)
-    special_df = load_special_panel(pd.read_stata(special_list_path))
-    logger.info("读取 patent_df=%s 行, special_df=%s 行", len(patent_df), len(special_df))
+    effective_firm_year_special_path = firm_year_special_labels_path
+    effective_special_ucc_path = special_ucc_set_path
+    if effective_firm_year_special_path is None or effective_special_ucc_path is None:
+        shared_paths = build_shared_paths(shared_root)
+        if effective_firm_year_special_path is None:
+            candidate = shared_paths.special_firm_labels_dir / "firm_year_special_labels.parquet"
+            if candidate.exists():
+                effective_firm_year_special_path = candidate
+        if effective_special_ucc_path is None:
+            candidate = shared_paths.special_firm_labels_dir / "special_ucc_set.parquet"
+            if candidate.exists():
+                effective_special_ucc_path = candidate
+
+    if effective_firm_year_special_path is None or effective_special_ucc_path is None:
+        raise FileNotFoundError("缺少共享特殊企业标签，请先运行 run_shared_prep.py 生成 shared special_firm_labels")
+    firm_year_special = pd.read_parquet(effective_firm_year_special_path)
+    special_uccs = (
+        pd.read_parquet(effective_special_ucc_path)[PATENT_UCC_COL]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    special_source = repo_relative(effective_firm_year_special_path)
+    special_ucc_source = repo_relative(effective_special_ucc_path)
+
+    logger.info("读取 patent_df=%s 行, firm_year_special=%s 行", len(patent_df), len(firm_year_special))
 
     logger.info("开始过滤专利样本")
     filtered_patents = filter_patents(
@@ -76,9 +102,9 @@ def analyze_special_firms(
     logger.info("过滤后专利样本量: %s", len(filtered_patents))
 
     logger.info("开始构造静态特殊企业面板")
-    company_agg = build_company_special_panel(
+    company_agg = build_company_special_panel_from_ucc_set(
         filtered_patents,
-        special_df,
+        special_uccs,
         quality_threshold=quality_threshold,
     )
     company_agg_path = paths.data_dir / "company_special_panel.parquet"
@@ -110,11 +136,6 @@ def analyze_special_firms(
     )
     if latex is not None:
         (paths.tables_dir / "firm_compare.tex").write_text(latex, encoding="utf-8")
-
-    logger.info("开始构造 firm-year special 标签")
-    firm_year_special = build_firm_year_special_panel(special_df)
-    firm_year_special_path = paths.data_dir / "firm_year_special_labels.parquet"
-    firm_year_special.to_parquet(firm_year_special_path, index=False)
 
     p_dyn = attach_special_year_labels(
         patent_df,
@@ -363,11 +384,11 @@ def analyze_special_firms(
 
     summary = {
         "experiment_id": experiment_id,
-        "main_enriched_path": repo_relative(patent_path),
-        "special_list_path": repo_relative(special_list_path),
+        "experiment_patent_panel_path": repo_relative(patent_path),
+        "special_label_source": special_source,
+        "special_ucc_source": special_ucc_source,
         "data_outputs": [
             repo_relative(company_agg_path),
-            repo_relative(firm_year_special_path),
             repo_relative(p_dyn_path),
             repo_relative(company_year_path),
             repo_relative(company_year_abc_path),
@@ -427,9 +448,11 @@ def _plot_two_group_hist(series_a: pd.Series, series_b: pd.Series, *, label_a: s
 def parse_args() -> ArgumentParser:
     parser = ArgumentParser(description="输出专精特新/特殊企业相关图表、对比表和公司年面板")
     parser.add_argument("--experiment-id", required=True, help="实验 ID")
-    parser.add_argument("--special-list-path", required=True, help="特殊企业名单 dta 路径")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
-    parser.add_argument("--main-enriched-path", help="main_enriched.parquet 路径")
+    parser.add_argument("--experiment-patent-panel-path", help="experiment_patent_panel.parquet 路径")
+    parser.add_argument("--firm-year-special-labels-path", help="共享 firm_year_special_labels.parquet 路径")
+    parser.add_argument("--special-ucc-set-path", help="共享 special_ucc_set.parquet 路径")
+    parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--exclude-years", nargs="*", type=int, default=[1985, 1986], help="排除年份")
     parser.add_argument("--quality-min", type=float, default=1e-5, help="Quality_q 最小阈值")
     parser.add_argument("--bs-min", type=float, default=1e-6, help="BS 最小阈值")
@@ -443,9 +466,11 @@ def main() -> None:
     args = parse_args().parse_args()
     analyze_special_firms(
         experiment_id=args.experiment_id,
-        special_list_path=resolve_repo_path(args.special_list_path),  # type: ignore[arg-type]
         output_root=args.output_root,
-        main_enriched_path=resolve_repo_path(args.main_enriched_path) if args.main_enriched_path else None,
+        experiment_patent_panel_path=resolve_repo_path(args.experiment_patent_panel_path) if args.experiment_patent_panel_path else None,
+        firm_year_special_labels_path=resolve_repo_path(args.firm_year_special_labels_path) if args.firm_year_special_labels_path else None,
+        special_ucc_set_path=resolve_repo_path(args.special_ucc_set_path) if args.special_ucc_set_path else None,
+        shared_root=args.shared_root,
         exclude_years=args.exclude_years,
         quality_min=args.quality_min,
         bs_min=args.bs_min,

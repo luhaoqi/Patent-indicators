@@ -1,5 +1,11 @@
 # Stage2 重构方案
 
+> 状态说明
+> 本文档是本次 shared prep 改造的设计方案文档，主要用于记录重构目标、边界和拆分思路。
+> 当前实现已经基本按本文方案落地。
+> 文中提到的 `build_main_enriched`、`build_ucc_panel` 等“当前实现”描述，指的是**重构前的旧版 stage2**。
+> 如果你要看现在的实际运行流程，请优先阅读 [README.md](../README.md) 和 [STAGE2_FLOW_DETAILED.md](./STAGE2_FLOW_DETAILED.md)。
+
 本文档用于定义 `stage2` 的重构目标、边界与实施计划。  
 核心目标是把当前第二阶段严格拆成两部分：
 

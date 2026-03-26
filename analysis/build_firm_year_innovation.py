@@ -13,10 +13,26 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from common.io import build_logger, read_csv_with_fallback, write_json  # noqa: E402
-from common.paths import build_experiment_paths, repo_relative, resolve_repo_path  # noqa: E402
+from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
 
 def _read_ucc_list(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() == ".parquet":
+        df = pd.read_parquet(path)
+        required = {"Stkid", "ShortName", "year", "UCC"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"[UCC exploded] 缺少列: {sorted(missing)}")
+        df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
+        df["UCC"] = df["UCC"].astype("string").fillna("").str.strip()
+        df = df[
+            df["year"].notna()
+            & (df["UCC"] != "")
+            & (df["UCC"].str.lower() != "nan")
+        ].copy()
+        df["year"] = df["year"].astype(int)
+        return df[["Stkid", "ShortName", "year", "UCC"]].drop_duplicates()
+
     df = read_csv_with_fallback(path, dtype=str, low_memory=False)
 
     rename_map = {}
@@ -74,8 +90,9 @@ def build_firm_year_innovation(
     *,
     experiment_id: str,
     output_root: str = "outputs/experiments",
-    main_enriched_path: Optional[Path] = None,
-    ucc_panel_path: Path,
+    experiment_patent_panel_path: Optional[Path] = None,
+    ucc_exploded_path: Optional[Path] = None,
+    shared_root: str = "outputs/shared",
     top_k: int = 10,
     quality_cap: float = 1000.0,
 ):
@@ -86,9 +103,21 @@ def build_firm_year_innovation(
         paths.logs_dir / "build_firm_year_innovation.log",
     )
 
-    patent_path = main_enriched_path or (paths.data_dir / "main_enriched.parquet")
-    logger.info("读取 UCC 面板: %s", repo_relative(ucc_panel_path))
-    ucc_map = _read_ucc_list(ucc_panel_path)
+    patent_path = experiment_patent_panel_path or (paths.data_dir / "experiment_patent_panel.parquet")
+    if not patent_path.exists():
+        raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
+
+    effective_ucc_path = ucc_exploded_path
+    if effective_ucc_path is None:
+        shared_paths = build_shared_paths(shared_root)
+        parquet_candidate = shared_paths.ucc_mapping_dir / "ucc_exploded.parquet"
+        if parquet_candidate.exists():
+            effective_ucc_path = parquet_candidate
+    if effective_ucc_path is None:
+        raise FileNotFoundError("缺少共享 UCC 映射，请先运行 run_shared_prep.py 生成 shared ucc_mapping")
+
+    logger.info("读取 UCC 面板: %s", repo_relative(effective_ucc_path))
+    ucc_map = _read_ucc_list(effective_ucc_path)
     logger.info("UCC 面板展开后行数: %s", len(ucc_map))
 
     logger.info("读取专利主表: %s", repo_relative(patent_path))
@@ -128,8 +157,8 @@ def build_firm_year_innovation(
 
     metadata = {
         "experiment_id": experiment_id,
-        "main_enriched_path": repo_relative(patent_path),
-        "ucc_panel_path": repo_relative(ucc_panel_path),
+        "experiment_patent_panel_path": repo_relative(patent_path),
+        "ucc_mapping_path": repo_relative(effective_ucc_path),
         "rows": int(len(grouped)),
         "top_k": int(top_k),
         "quality_cap": float(quality_cap),
@@ -141,15 +170,12 @@ def build_firm_year_innovation(
 
 
 def parse_args() -> ArgumentParser:
-    parser = ArgumentParser(description="根据 main_enriched 和 UCC 面板生成 firm_year_innovation.parquet")
+    parser = ArgumentParser(description="根据 experiment_patent_panel 和共享 UCC 映射生成 firm_year_innovation.parquet")
     parser.add_argument("--experiment-id", required=True, help="实验 ID")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
-    parser.add_argument("--main-enriched-path", help="main_enriched.parquet 路径，不传则默认 experiment data 目录")
-    parser.add_argument(
-        "--ucc-panel-path",
-        default="analysis/公司财务/数据/上市公司（包括所有子公司）各年度的统一社会信用代码列表.csv",
-        help="上市公司及子公司统一社会信用代码面板 CSV",
-    )
+    parser.add_argument("--experiment-patent-panel-path", help="experiment_patent_panel.parquet 路径")
+    parser.add_argument("--ucc-exploded-path", help="共享 ucc_exploded.parquet 路径")
+    parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--top-k", type=int, default=10, help="firm-year 创新指数采用的 TopK 均值")
     parser.add_argument("--quality-cap", type=float, default=1000.0, help="专利层 Quality_q 上限")
     return parser
@@ -157,13 +183,12 @@ def parse_args() -> ArgumentParser:
 
 def main() -> None:
     args = parse_args().parse_args()
-    ucc_panel_path = resolve_repo_path(args.ucc_panel_path)
-    assert ucc_panel_path is not None
     build_firm_year_innovation(
         experiment_id=args.experiment_id,
         output_root=args.output_root,
-        main_enriched_path=resolve_repo_path(args.main_enriched_path) if args.main_enriched_path else None,
-        ucc_panel_path=ucc_panel_path,
+        experiment_patent_panel_path=resolve_repo_path(args.experiment_patent_panel_path) if args.experiment_patent_panel_path else None,
+        ucc_exploded_path=resolve_repo_path(args.ucc_exploded_path) if args.ucc_exploded_path else None,
+        shared_root=args.shared_root,
         top_k=args.top_k,
         quality_cap=args.quality_cap,
     )
