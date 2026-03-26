@@ -9,31 +9,32 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import polars as pl  # noqa: E402
 
-from common.io import build_logger, read_csv_with_fallback, write_json  # noqa: E402
+from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
 
-def _read_ucc_list(path: Path) -> pd.DataFrame:
+def _read_ucc_list(path: Path) -> pl.DataFrame:
     if path.suffix.lower() == ".parquet":
-        df = pd.read_parquet(path)
+        df = pl.read_parquet(str(path))
         required = {"Stkid", "ShortName", "year", "UCC"}
         missing = required - set(df.columns)
         if missing:
             raise ValueError(f"[UCC exploded] 缺少列: {sorted(missing)}")
-        df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
-        df["UCC"] = df["UCC"].astype("string").fillna("").str.strip()
-        df = df[
-            df["year"].notna()
-            & (df["UCC"] != "")
-            & (df["UCC"].str.lower() != "nan")
-        ].copy()
-        df["year"] = df["year"].astype(int)
-        return df[["Stkid", "ShortName", "year", "UCC"]].drop_duplicates()
+        return (
+            df.select(
+                pl.col("Stkid").cast(pl.Utf8).str.strip_chars(),
+                pl.col("ShortName").cast(pl.Utf8, strict=False).alias("ShortName"),
+                pl.col("year").cast(pl.Int32, strict=False),
+                pl.col("UCC").cast(pl.Utf8).str.strip_chars(),
+            )
+            .filter(pl.col("year").is_not_null())
+            .filter(pl.col("UCC").is_not_null() & (pl.col("UCC") != "") & (pl.col("UCC").str.to_lowercase() != "nan"))
+            .unique(subset=["Stkid", "year", "UCC"])
+        )
 
-    df = read_csv_with_fallback(path, dtype=str, low_memory=False)
+    df = pl.read_csv(str(path), infer_schema_length=10000, encoding="utf8-lossy", ignore_errors=True)
 
     rename_map = {}
     if "证券ID" in df.columns:
@@ -51,39 +52,48 @@ def _read_ucc_list(path: Path) -> pd.DataFrame:
     elif "统一社会信用代码" in df.columns:
         rename_map["统一社会信用代码"] = "UCC_list"
 
-    df = df.rename(columns=rename_map)
+    df = df.rename(rename_map)
     required = {"Stkid", "ShortName", "year", "UCC_list"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"[UCC list] 缺少列: {sorted(missing)}")
 
-    df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
-    df["UCC_list"] = df["UCC_list"].astype("string").fillna("").str.strip()
-    exploded = df.assign(UCC=df["UCC_list"].str.split(";")).explode("UCC")
-    exploded["UCC"] = exploded["UCC"].astype("string").fillna("").str.strip()
-    exploded = exploded[
-        exploded["year"].notna()
-        & (exploded["UCC"] != "")
-        & (exploded["UCC"].str.lower() != "nan")
-    ].copy()
-    exploded["year"] = exploded["year"].astype(int)
-    return exploded[["Stkid", "ShortName", "year", "UCC"]].drop_duplicates()
+    return (
+        df.with_columns(
+            pl.col("Stkid").cast(pl.Utf8).str.strip_chars(),
+            pl.col("ShortName").cast(pl.Utf8, strict=False).alias("ShortName"),
+            pl.col("year").cast(pl.Int32, strict=False),
+            pl.col("UCC_list")
+            .cast(pl.Utf8)
+            .fill_null("")
+            .str.strip_chars()
+            .str.split(";")
+            .alias("UCC_arr"),
+        )
+        .explode("UCC_arr")
+        .with_columns(pl.col("UCC_arr").cast(pl.Utf8).str.strip_chars().alias("UCC"))
+        .filter(pl.col("year").is_not_null())
+        .filter(pl.col("UCC").is_not_null() & (pl.col("UCC") != "") & (pl.col("UCC").str.to_lowercase() != "nan"))
+        .select(["Stkid", "ShortName", "year", "UCC"])
+        .unique(subset=["Stkid", "year", "UCC"])
+    )
 
 
-def _read_patents(path: Path, *, quality_cap: float) -> pd.DataFrame:
-    df = pd.read_parquet(path, columns=["申请年份", "统一社会信用代码", "Quality_q"])
-    df = df.rename(columns={"申请年份": "year", "统一社会信用代码": "UCC"})
-    df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
-    df["UCC"] = df["UCC"].astype("string").fillna("").str.strip()
-    df["Quality_q"] = pd.to_numeric(df["Quality_q"], errors="coerce")
-    df = df[
-        df["year"].notna()
-        & (df["UCC"] != "")
-        & df["Quality_q"].notna()
-        & (df["Quality_q"] <= quality_cap)
-    ].copy()
-    df["year"] = df["year"].astype(int)
-    return df
+def _read_patents(path: Path, *, quality_cap: float) -> pl.DataFrame:
+    return (
+        pl.scan_parquet(str(path))
+        .select(
+            pl.col("申请年份").cast(pl.Int32, strict=False).alias("year"),
+            pl.col("统一社会信用代码").cast(pl.Utf8).str.strip_chars().alias("UCC"),
+            pl.col("Quality_q").cast(pl.Float64, strict=False),
+        )
+        .filter(pl.col("year").is_not_null())
+        .filter(pl.col("UCC").is_not_null())
+        .filter(pl.col("UCC") != "")
+        .filter(pl.col("Quality_q").is_not_null())
+        .filter(pl.col("Quality_q") <= quality_cap)
+        .collect(engine="streaming")
+    )
 
 
 def build_firm_year_innovation(
@@ -118,51 +128,55 @@ def build_firm_year_innovation(
 
     logger.info("读取 UCC 面板: %s", repo_relative(effective_ucc_path))
     ucc_map = _read_ucc_list(effective_ucc_path)
-    logger.info("UCC 面板展开后行数: %s", len(ucc_map))
+    logger.info("UCC 面板展开后行数: %s", ucc_map.height)
 
     logger.info("读取专利主表: %s", repo_relative(patent_path))
     patents = _read_patents(patent_path, quality_cap=quality_cap)
-    logger.info("专利样本过滤后行数: %s", len(patents))
+    logger.info("专利样本过滤后行数: %s", patents.height)
 
-    logger.info("开始将专利与 UCC 面板按 [UCC, year] 匹配")
-    joined = patents.merge(ucc_map, on=["UCC", "year"], how="inner")
-    logger.info("专利与 UCC 面板匹配后行数: %s", len(joined))
-
-    logger.info("开始按公司-年份聚合创新指标，top_k=%s", top_k)
-    grouped = (
-        joined.groupby(["Stkid", "ShortName", "year"], dropna=False)["Quality_q"]
+    logger.info("开始按 notebook 路径聚合 firm_year_innovation，top_k=%s", top_k)
+    firm_year = (
+        patents.join(ucc_map, on=["UCC", "year"], how="inner")
+        .select(["Stkid", "ShortName", "year", "Quality_q"])
+        .group_by(["Stkid", "ShortName", "year"])
         .agg(
-            PatentCount="size",
-            Innovation_raw=lambda series: series.nlargest(top_k).mean(),
+            pl.col("Quality_q").count().alias("PatentCount"),
+            pl.col("Quality_q").sort(descending=True).head(top_k).mean().alias("Innovation_raw"),
         )
-        .reset_index()
+        .filter(pl.col("Innovation_raw") > 0)
+        .with_columns(pl.lit(f"Top{top_k}Mean").alias("Method"))
     )
-    grouped = grouped[grouped["Innovation_raw"] > 0].copy()
-    grouped["Method"] = f"Top{top_k}Mean"
-    logger.info("公司-年份聚合后行数: %s", len(grouped))
 
-    logger.info("开始按年份标准化 Innovation_raw")
-    stats = grouped.groupby("year")["Innovation_raw"].agg(mu="mean", sigma="std").reset_index()
-    grouped = grouped.merge(stats, on="year", how="left")
-    grouped["Innovation_z"] = np.where(
-        grouped["sigma"].isna() | (grouped["sigma"] == 0),
-        np.nan,
-        (grouped["Innovation_raw"] - grouped["mu"]) / grouped["sigma"],
+    stats = (
+        firm_year.group_by("year")
+        .agg(
+            pl.col("Innovation_raw").mean().alias("mu"),
+            pl.col("Innovation_raw").std().alias("sigma"),
+        )
     )
-    grouped = grouped.drop(columns=["mu", "sigma"])
-    logger.info("标准化完成，开始写出 parquet")
+    firm_year = (
+        firm_year.join(stats, on="year", how="left")
+        .with_columns(
+            pl.when((pl.col("sigma").is_null()) | (pl.col("sigma") == 0))
+            .then(None)
+            .otherwise((pl.col("Innovation_raw") - pl.col("mu")) / pl.col("sigma"))
+            .alias("Innovation_z")
+        )
+        .drop(["mu", "sigma"])
+    )
 
     output_path = paths.data_dir / "firm_year_innovation.parquet"
-    grouped.to_parquet(output_path, index=False)
+    firm_year.write_parquet(output_path)
 
     metadata = {
         "experiment_id": experiment_id,
         "experiment_patent_panel_path": repo_relative(patent_path),
         "ucc_mapping_path": repo_relative(effective_ucc_path),
-        "rows": int(len(grouped)),
+        "rows": int(firm_year.height),
         "top_k": int(top_k),
         "quality_cap": float(quality_cap),
         "method": f"Top{top_k}Mean",
+        "implementation": "polars_streaming",
     }
     write_json(paths.metadata_dir / "build_firm_year_innovation.json", metadata)
     logger.info("firm_year_innovation 输出: %s", repo_relative(output_path))

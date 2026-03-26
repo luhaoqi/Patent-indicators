@@ -10,6 +10,7 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 import pandas as pd
+import polars as pl
 
 from common.analysis import (
     SPECIAL_UCC_COL,
@@ -199,24 +200,36 @@ def verify_shared_prep(
         exists = path.exists()
         record: Dict[str, Any] = {"path": repo_relative(path), "exists": exists}
         if exists:
-            df = pd.read_parquet(path)
+            lf = pl.scan_parquet(str(path))
+            columns = lf.collect_schema().names()
             required = REQUIRED_SHARED_FIELDS[name]
-            missing = [column for column in required if column not in df.columns]
+            missing = [column for column in required if column not in columns]
             record.update(
                 {
-                    "rows": int(len(df)),
-                    "columns": list(df.columns),
+                    "rows": int(lf.select(pl.len()).collect().item()),
+                    "columns": columns,
                     "missing_required_fields": missing,
                 }
             )
-            if name == "patent_master":
-                record["primary_key_unique"] = bool(df["申请号"].astype("string").is_unique)
-            elif name == "firm_year_special_labels":
-                record["primary_key_unique"] = not df.duplicated(["统一社会信用代码", "申请年份"]).any()
-            elif name == "ucc_exploded":
-                record["primary_key_unique"] = not df.duplicated(["Stkid", "year", "UCC"]).any()
-            elif name == "financial_annual_clean":
-                record["primary_key_unique"] = not df.duplicated(["stkcd", "year"]).any()
+            if not missing:
+                if name == "patent_master":
+                    record["primary_key_unique"] = bool(
+                        lf.select((pl.col("申请号").n_unique() == pl.len()).alias("is_unique")).collect().item()
+                    )
+                elif name == "firm_year_special_labels":
+                    record["primary_key_unique"] = bool(
+                        lf.select(
+                            (pl.struct(["统一社会信用代码", "申请年份"]).n_unique() == pl.len()).alias("is_unique")
+                        ).collect().item()
+                    )
+                elif name == "ucc_exploded":
+                    record["primary_key_unique"] = bool(
+                        lf.select((pl.struct(["Stkid", "year", "UCC"]).n_unique() == pl.len()).alias("is_unique")).collect().item()
+                    )
+                elif name == "financial_annual_clean":
+                    record["primary_key_unique"] = bool(
+                        lf.select((pl.struct(["stkcd", "year"]).n_unique() == pl.len()).alias("is_unique")).collect().item()
+                    )
         checks[name] = record
 
     summary = {

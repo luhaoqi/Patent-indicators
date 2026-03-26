@@ -3,198 +3,193 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Optional
 
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 import pandas as pd  # noqa: E402
+import polars as pl  # noqa: E402
 
-from common.io import build_logger, copy_if_needed, list_csv_files, normalize_string_series, read_csv_with_fallback, write_json  # noqa: E402
+from common.io import build_logger, copy_if_needed, list_csv_files, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
 
 ID_COL = "申请号"
 PATENT_TYPE_COL = "专利类型"
 AUTHORIZED_PATENT_TYPE = "发明授权"
+CITATION_COLS = [
+    "引证次数",
+    "被引证次数",
+    "自引次数",
+    "他引次数",
+    "被自引次数",
+    "被他引次数",
+    "家族引证次数",
+    "家族被引证次数",
+]
+PATENT_MASTER_COLUMNS = [
+    ID_COL,
+    "申请年份",
+    PATENT_TYPE_COL,
+    "公开公告年份",
+    "IPC主分类号",
+    "专利权人类型",
+    "统一社会信用代码",
+    *CITATION_COLS,
+]
 
 
-def _non_empty(series: Any) -> Any:
-    cleaned = normalize_string_series(series)
-    return cleaned[cleaned != ""]
-
-
-def _deduplicate_extra(extra_df: Any) -> Any:
-    if extra_df.empty:
-        return extra_df
-
-    extra_df = extra_df.copy()
-    for column in extra_df.columns:
-        if extra_df[column].dtype == object or str(extra_df[column].dtype).startswith("string"):
-            extra_df[column] = normalize_string_series(extra_df[column])
-
-    def aggregate_group(group: Any) -> Any:
-        effective_group = group
-        if PATENT_TYPE_COL in group.columns:
-            authorized_group = group[group[PATENT_TYPE_COL] == AUTHORIZED_PATENT_TYPE]
-            if not authorized_group.empty:
-                effective_group = authorized_group
-        result: Dict[str, object] = {ID_COL: group.name}
-        for column in effective_group.columns:
-            if column == ID_COL:
-                continue
-            non_empty = _non_empty(cast(Any, effective_group[column]))
-            if non_empty.empty:
-                result[column] = pd.NA
-                continue
-            numeric = cast(Any, pd.to_numeric(non_empty, errors="coerce"))
-            if cast(bool, numeric.notna().all()):
-                result[column] = numeric.max()
-            else:
-                result[column] = non_empty.iloc[0]
-        return pd.Series(result)
-
-    dedup = extra_df.groupby(ID_COL, as_index=False, dropna=False).apply(aggregate_group)
-    if isinstance(dedup.index, pd.MultiIndex):
-        dedup = dedup.reset_index(drop=True)
-    return dedup
-
-
-def _fill_from_raw_columns(main_df: Any, extra_df: Any) -> Any:
-    merged = main_df.merge(extra_df, on=ID_COL, how="left", suffixes=("", "__raw"))
-    for column in list(merged.columns):
-        if not column.endswith("__raw"):
-            continue
-        base_column = column[:-5]
-        if base_column not in merged.columns:
-            merged.rename(columns={column: base_column}, inplace=True)
-            continue
-        left = normalize_string_series(merged[base_column])
-        merged[base_column] = merged[base_column].where(left != "", merged[column])
-        merged.drop(columns=[column], inplace=True)
-    return merged
-
-
-def _load_main_output(stage1_output_path: Path) -> Any:
-    main_df = read_csv_with_fallback(stage1_output_path, dtype={ID_COL: "string"})
-    main_df[ID_COL] = normalize_string_series(main_df[ID_COL])
-    return main_df
-
-
-def _collect_extra_rows(
-    raw_patent_dir: Path,
-    target_ids: set[str],
-    *,
-    chunksize: int,
-    logger,
-) -> Any:
-    frames: List[Any] = []
-    csv_paths = list_csv_files(raw_patent_dir)
-    logger.info(
-        "开始回捞原始专利，共 %s 个 CSV 文件，目标申请号数=%s，坏行将直接跳过",
-        len(csv_paths),
-        len(target_ids),
+def _scan_csv_utf8_lossy(path: Path) -> pl.LazyFrame:
+    return pl.scan_csv(
+        str(path),
+        encoding="utf8-lossy",
+        infer_schema_length=0,
+        ignore_errors=True,
     )
+
+
+def _normalized_utf8_expr(name: str) -> pl.Expr:
+    return (
+        pl.col(name)
+        .cast(pl.Utf8, strict=False)
+        .str.strip_chars()
+        .alias(name)
+    )
+
+
+def _build_part_exprs(schema_names: set[str]) -> list[pl.Expr]:
+    exprs: list[pl.Expr] = []
+    for column in PATENT_MASTER_COLUMNS:
+        if column in schema_names:
+            exprs.append(_normalized_utf8_expr(column))
+        else:
+            exprs.append(pl.lit(None, dtype=pl.Utf8).alias(column))
+    return exprs
+
+
+def _extract_patent_parts(
+    *,
+    raw_patent_dir: Path,
+    parts_dir: Path,
+    logger,
+) -> list[Path]:
+    csv_paths = list_csv_files(raw_patent_dir)
+    logger.info("开始构造 patent_master，共 %s 个 CSV 文件", len(csv_paths))
+    part_paths: list[Path] = []
+
     for file_index, csv_path in enumerate(csv_paths, start=1):
-        logger.info("扫描原始专利文件 [%s/%s]: %s", file_index, len(csv_paths), repo_relative(csv_path))
-        reader = read_csv_with_fallback(
-            csv_path,
-            dtype={ID_COL: "string"},
-            chunksize=chunksize,
-            low_memory=False,
-            on_bad_lines="skip",
-            engine="python",
+        part_path = parts_dir / f"{csv_path.stem}.parquet"
+        part_paths.append(part_path)
+        if part_path.exists():
+            logger.info("跳过已有 parquet part [%s/%s]: %s", file_index, len(csv_paths), repo_relative(part_path))
+            continue
+
+        logger.info("抽取原始专利文件 [%s/%s]: %s", file_index, len(csv_paths), repo_relative(csv_path))
+        raw_lf = _scan_csv_utf8_lossy(csv_path)
+        schema_names = set(raw_lf.collect_schema().names())
+        part_df = (
+            raw_lf
+            .select(_build_part_exprs(schema_names))
+            .filter(pl.col(ID_COL).is_not_null() & (pl.col(ID_COL) != ""))
+            .collect(engine="streaming")
         )
-        file_rows = 0
-        matched_rows = 0
-        for chunk_index, chunk in enumerate(reader, start=1):
-            chunk_df = chunk
-            file_rows += len(chunk_df)
-            ids = normalize_string_series(chunk_df[ID_COL])
-            matched = chunk_df.loc[ids.isin(target_ids)].copy()
-            if matched.empty:
-                if chunk_index % 20 == 0:
-                    logger.info(
-                        "文件 [%s/%s] chunk=%s 已扫描 %s 行，当前匹配 %s 行",
-                        file_index,
-                        len(csv_paths),
-                        chunk_index,
-                        file_rows,
-                        matched_rows,
-                    )
-                continue
-            matched[ID_COL] = normalize_string_series(matched[ID_COL])
-            frames.append(matched)
-            matched_rows += len(matched)
-            logger.info(
-                "文件 [%s/%s] chunk=%s 命中 %s 行，累计扫描 %s 行，累计匹配 %s 行",
-                file_index,
-                len(csv_paths),
-                chunk_index,
-                len(matched),
-                file_rows,
-                matched_rows,
-            )
+        part_df.write_parquet(part_path)
         logger.info(
-            "原始专利文件 [%s/%s] 扫描完成: %s，扫描 %s 行，匹配 %s 行",
+            "part 写出完成 [%s/%s]: %s，rows=%s",
             file_index,
             len(csv_paths),
-            repo_relative(csv_path),
-            file_rows,
-            matched_rows,
+            repo_relative(part_path),
+            part_df.height,
         )
-    if not frames:
-        return pd.DataFrame(columns=[ID_COL])
-    return pd.concat(frames, ignore_index=True)
+
+    return part_paths
 
 
-def _collect_all_rows(
-    raw_patent_dir: Path,
-    *,
-    chunksize: int,
-    logger,
-) -> Any:
-    frames: List[Any] = []
-    csv_paths = list_csv_files(raw_patent_dir)
-    logger.info(
-        "开始构造 patent_master，共 %s 个 CSV 文件，坏行将直接跳过",
-        len(csv_paths),
+def _citation_expr(column: str) -> pl.Expr:
+    base = (
+        pl.col(column)
+        .cast(pl.Utf8, strict=False)
+        .str.strip_chars()
+        .replace("", None)
+        .cast(pl.Float64, strict=False)
+        .cast(pl.Int64, strict=False)
     )
-    for file_index, csv_path in enumerate(csv_paths, start=1):
-        logger.info("扫描原始专利文件 [%s/%s]: %s", file_index, len(csv_paths), repo_relative(csv_path))
-        reader = read_csv_with_fallback(
-            csv_path,
-            dtype={ID_COL: "string"},
-            chunksize=chunksize,
-            low_memory=False,
-            on_bad_lines="skip",
-            engine="python",
+    preferred = base.filter(pl.col("__authorized")).drop_nulls().max()
+    fallback = base.drop_nulls().max()
+    return (
+        pl.when(pl.col("__authorized").sum() > 0)
+        .then(preferred)
+        .otherwise(fallback)
+        .alias(column)
+    )
+
+
+def _non_citation_expr(column: str) -> pl.Expr:
+    base = (
+        pl.col(column)
+        .cast(pl.Utf8, strict=False)
+        .str.strip_chars()
+        .replace("", None)
+    )
+    preferred = base.filter(pl.col("__authorized")).drop_nulls().first()
+    fallback = base.drop_nulls().first()
+    return (
+        pl.when(pl.col("__authorized").sum() > 0)
+        .then(preferred)
+        .otherwise(fallback)
+        .alias(column)
+    )
+
+
+def _deduplicate_parts(
+    *,
+    part_paths: list[Path],
+    patent_master_path: Path,
+    logger,
+) -> int:
+    if not part_paths:
+        empty = pl.DataFrame(schema={column: pl.Utf8 for column in PATENT_MASTER_COLUMNS})
+        empty.write_parquet(patent_master_path)
+        return 0
+
+    parts_glob = str(part_paths[0].parent / "*.parquet")
+    extra_all_lf = (
+        pl.scan_parquet(parts_glob)
+        .select([pl.col(column) for column in PATENT_MASTER_COLUMNS])
+        .with_columns(
+            _normalized_utf8_expr(ID_COL),
+            _normalized_utf8_expr(PATENT_TYPE_COL),
+            pl.col(PATENT_TYPE_COL).cast(pl.Utf8, strict=False).str.strip_chars().eq(AUTHORIZED_PATENT_TYPE).alias("__authorized"),
         )
-        file_rows = 0
-        for chunk_index, chunk in enumerate(reader, start=1):
-            chunk_df = chunk.copy()
-            file_rows += len(chunk_df)
-            chunk_df[ID_COL] = normalize_string_series(chunk_df[ID_COL])
-            frames.append(chunk_df)
-            if chunk_index % 20 == 0:
-                logger.info(
-                    "文件 [%s/%s] chunk=%s 已累计扫描 %s 行",
-                    file_index,
-                    len(csv_paths),
-                    chunk_index,
-                    file_rows,
-                )
-        logger.info(
-            "原始专利文件 [%s/%s] 扫描完成: %s，累计 %s 行",
-            file_index,
-            len(csv_paths),
-            repo_relative(csv_path),
-            file_rows,
+        .filter(pl.col(ID_COL).is_not_null() & (pl.col(ID_COL) != ""))
+    )
+    rows_total = extra_all_lf.select(pl.len()).collect().item()
+    logger.info("patent_master 原始行数: %s", rows_total)
+
+    agg_exprs: list[pl.Expr] = []
+    for column in PATENT_MASTER_COLUMNS:
+        if column == ID_COL:
+            continue
+        if column in CITATION_COLS:
+            agg_exprs.append(_citation_expr(column))
+        else:
+            agg_exprs.append(_non_citation_expr(column))
+
+    patent_master_df = (
+        extra_all_lf
+        .group_by(ID_COL)
+        .agg(agg_exprs)
+        .with_columns(
+            pl.col("申请年份").cast(pl.Int32, strict=False),
+            pl.col("公开公告年份").cast(pl.Int32, strict=False),
         )
-    if not frames:
-        return pd.DataFrame(columns=[ID_COL])
-    return pd.concat(frames, ignore_index=True)
+        .collect(engine="streaming")
+    )
+    patent_master_df.write_parquet(patent_master_path)
+    logger.info("patent_master 去重后行数: %s", patent_master_df.height)
+    return int(rows_total)
 
 
 def build_patent_master(
@@ -203,28 +198,44 @@ def build_patent_master(
     shared_root: str = "outputs/shared",
     chunksize: int = 100000,
 ) -> Dict[str, Path]:
+    del chunksize
+
     shared_paths = build_shared_paths(shared_root)
     shared_paths.ensure_dirs()
     logger = build_logger("build_patent_master", shared_paths.logs_dir / "build_patent_master.log")
 
-    extra_all = _collect_all_rows(raw_patent_dir, chunksize=chunksize, logger=logger)
-    logger.info("patent_master 原始行数: %s", len(extra_all))
-    patent_master = _deduplicate_extra(extra_all)
-    logger.info("patent_master 去重后行数: %s", len(patent_master))
-
+    parts_dir = shared_paths.patent_master_dir / "extra_parts"
+    parts_dir.mkdir(parents=True, exist_ok=True)
     patent_master_path = shared_paths.patent_master_dir / "patent_master.parquet"
     metadata_path = shared_paths.patent_master_dir / "metadata.json"
-    patent_master.to_parquet(patent_master_path, index=False)
+
+    part_paths = _extract_patent_parts(
+        raw_patent_dir=raw_patent_dir,
+        parts_dir=parts_dir,
+        logger=logger,
+    )
+    rows_total = _deduplicate_parts(
+        part_paths=part_paths,
+        patent_master_path=patent_master_path,
+        logger=logger,
+    )
+
+    columns = pl.read_parquet(patent_master_path, n_rows=0).columns
+    row_count = pl.scan_parquet(str(patent_master_path)).select(pl.len()).collect().item()
     write_json(
         metadata_path,
         {
             "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
             "inputs": {"raw_patent_dir": repo_relative(raw_patent_dir)},
-            "outputs": {"patent_master": repo_relative(patent_master_path)},
-            "rows": int(len(patent_master)),
-            "columns": list(patent_master.columns),
+            "outputs": {
+                "patent_master": repo_relative(patent_master_path),
+                "extra_parts_dir": repo_relative(parts_dir),
+            },
+            "rows": int(row_count),
+            "raw_rows": int(rows_total),
+            "columns": columns,
             "key_fields": [ID_COL],
-            "chunksize": int(chunksize),
+            "implementation": "polars_parts_plus_streaming_groupby",
         },
     )
     logger.info("patent_master 输出: %s", repo_relative(patent_master_path))
@@ -232,6 +243,17 @@ def build_patent_master(
         "patent_master_path": patent_master_path,
         "metadata_path": metadata_path,
     }
+
+
+def _read_stage1_main(stage1_output_path: Path) -> pl.DataFrame:
+    main_df = pl.read_csv(
+        str(stage1_output_path),
+        encoding="utf8-lossy",
+        ignore_errors=True,
+    )
+    if ID_COL not in main_df.columns:
+        raise KeyError(f"stage1 输出缺少列: {ID_COL}")
+    return main_df.with_columns(_normalized_utf8_expr(ID_COL))
 
 
 def build_experiment_patent_panel(
@@ -242,6 +264,8 @@ def build_experiment_patent_panel(
     patent_master_path: Path,
     shared_root: str = "outputs/shared",
 ) -> Dict[str, Path]:
+    del shared_root
+
     paths = build_experiment_paths(experiment_id, output_root=output_root)
     paths.ensure_dirs()
     logger = build_logger(
@@ -249,36 +273,53 @@ def build_experiment_patent_panel(
         paths.logs_dir / "build_experiment_patent_panel.log",
     )
 
-    effective_patent_master_path = patent_master_path
-    if not effective_patent_master_path.exists():
-        raise FileNotFoundError(f"找不到 patent_master: {effective_patent_master_path}")
+    if not patent_master_path.exists():
+        raise FileNotFoundError(f"找不到 patent_master: {patent_master_path}")
 
     logger.info("读取 stage1 主结果: %s", repo_relative(stage1_output_path))
-    main_df = _load_main_output(stage1_output_path)
-    logger.info("读取 patent_master: %s", repo_relative(effective_patent_master_path))
-    patent_master = pd.read_parquet(effective_patent_master_path)
-    patent_master[ID_COL] = normalize_string_series(patent_master[ID_COL])
-    logger.info("开始按申请号拼接 experiment_patent_panel")
-    experiment_patent_panel = _fill_from_raw_columns(main_df, patent_master)
+    main_df = _read_stage1_main(stage1_output_path)
+    logger.info("读取 patent_master: %s", repo_relative(patent_master_path))
 
     stage1_copy_path = paths.data_dir / "patent_quality_output.csv"
     main_path = paths.data_dir / "main.parquet"
     panel_path = paths.data_dir / "experiment_patent_panel.parquet"
     copy_if_needed(stage1_output_path, stage1_copy_path)
-    main_df.to_parquet(main_path, index=False)
-    experiment_patent_panel.to_parquet(panel_path, index=False)
+    main_df.write_parquet(main_path)
+
+    logger.info("开始按 notebook 路径构造 experiment_patent_panel")
+    main_cols = pl.read_parquet(main_path, n_rows=0).columns
+    extra_cols = [
+        column
+        for column in pl.read_parquet(patent_master_path, n_rows=0).columns
+        if column == ID_COL or column not in main_cols
+    ]
+
+    experiment_patent_panel = (
+        pl.scan_parquet(str(main_path))
+        .with_columns(_normalized_utf8_expr(ID_COL))
+        .join(
+            pl.scan_parquet(str(patent_master_path))
+            .with_columns(_normalized_utf8_expr(ID_COL))
+            .select(extra_cols),
+            on=ID_COL,
+            how="left",
+        )
+        .collect(engine="streaming")
+    )
+    experiment_patent_panel.write_parquet(panel_path)
 
     metadata = {
         "experiment_id": experiment_id,
         "stage1_output": repo_relative(stage1_output_path),
-        "patent_master_path": repo_relative(effective_patent_master_path),
-        "main_rows": int(len(main_df)),
-        "experiment_patent_panel_rows": int(len(experiment_patent_panel)),
+        "patent_master_path": repo_relative(patent_master_path),
+        "main_rows": int(main_df.height),
+        "experiment_patent_panel_rows": int(experiment_patent_panel.height),
         "outputs": {
             "stage1_copy": repo_relative(stage1_copy_path),
             "main": repo_relative(main_path),
             "experiment_patent_panel": repo_relative(panel_path),
         },
+        "implementation": "polars_parquet_join",
     }
     write_json(paths.metadata_dir / "build_experiment_patent_panel.json", metadata)
     logger.info("experiment_patent_panel 输出: %s", repo_relative(panel_path))
