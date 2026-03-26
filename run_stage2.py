@@ -25,6 +25,7 @@ EXPERIMENT_ID = "标题_摘要_window5"
 OUTPUT_ROOT = "outputs/experiments"
 TOPK_VALUES = (10, 30, 50)
 EXCLUDE_YEARS = (1985, 1986)
+SKIP_DIAGNOSTICS = False
 
 
 def main():
@@ -38,6 +39,7 @@ def main():
             shared_root=str(project_root / "outputs/shared"),
         ),
         diagnostics=DiagnosticsConfig(
+            skip=SKIP_DIAGNOSTICS,
             topk_values=TOPK_VALUES,
             yearly_top_vocab_k=50,
             max_year_gap=5,
@@ -81,6 +83,7 @@ def main():
         stage1_dir=layout.stage1_dir,
         shared_root=stage2_config.inputs.shared_root,
         output_root=stage2_config.output_root,
+        skip_diagnostics=stage2_config.diagnostics.skip,
         topk_values=stage2_config.diagnostics.topk_values,
         yearly_top_vocab_k=stage2_config.diagnostics.yearly_top_vocab_k,
         max_year_gap=stage2_config.diagnostics.max_year_gap,

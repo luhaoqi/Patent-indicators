@@ -20,6 +20,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", help="覆盖 manifest.shared.output_root")
     parser.add_argument("--shared-root", help="覆盖 manifest.shared.shared_root")
     parser.add_argument("--quality-threshold", type=float, help="覆盖 manifest/shared 中的高质量阈值")
+    parser.add_argument("--skip-diagnostics", action="store_true", help="覆盖 manifest，跳过 diagnostics")
     return parser
 
 
@@ -54,6 +55,7 @@ def main() -> None:
             stage1_dir=stage1_dir,
             shared_root=str(experiment.get("shared_root", shared_root)),
             output_root=output_root,
+            skip_diagnostics=bool(experiment.get("skip_diagnostics", shared.get("skip_diagnostics", args.skip_diagnostics))),
             topk_values=experiment.get("topk_values", shared.get("topk_values", [10, 30, 50])),
             yearly_top_vocab_k=int(experiment.get("yearly_top_vocab_k", shared.get("yearly_top_vocab_k", 50))),
             max_year_gap=int(experiment.get("max_year_gap", shared.get("max_year_gap", 5))),

@@ -13,6 +13,7 @@ class Stage2InputsConfig:
 
 @dataclass(frozen=True)
 class DiagnosticsConfig:
+    skip: bool = False
     topk_values: tuple[int, ...] = (10, 30, 50)
     yearly_top_vocab_k: int = 50
     max_year_gap: int = 5
@@ -77,6 +78,7 @@ class Stage2Config:
         stage1_dir: Path,
         shared_root: Path,
         output_root: str,
+        skip_diagnostics: bool,
         topk_values: Sequence[int],
         yearly_top_vocab_k: int,
         max_year_gap: int,
@@ -103,6 +105,7 @@ class Stage2Config:
                 shared_root=str(shared_root),
             ),
             diagnostics=DiagnosticsConfig(
+                skip=bool(skip_diagnostics),
                 topk_values=tuple(int(value) for value in topk_values),
                 yearly_top_vocab_k=int(yearly_top_vocab_k),
                 max_year_gap=int(max_year_gap),

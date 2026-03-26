@@ -32,6 +32,7 @@ def run_stage2(
     stage1_dir: Path,
     shared_root: str = "outputs/shared",
     output_root: str = "outputs/experiments",
+    skip_diagnostics: bool = False,
     topk_values: Sequence[int] = (10, 30, 50),
     yearly_top_vocab_k: int = 50,
     max_year_gap: int = 5,
@@ -74,6 +75,7 @@ def run_stage2(
         stage1_dir=stage1_dir,
         shared_root=shared_paths.root,
         output_root=output_root,
+        skip_diagnostics=skip_diagnostics,
         topk_values=topk_values,
         yearly_top_vocab_k=yearly_top_vocab_k,
         max_year_gap=max_year_gap,
@@ -107,21 +109,25 @@ def run_stage2(
 
     step_summaries: Dict[str, Any] = {}
 
-    logger.info("[1/6] 运行 diagnostics")
-    from common.diagnostics import run_diagnostics as run_diagnostics_outputs  # noqa: E402
+    if skip_diagnostics:
+        logger.info("[1/6] 跳过 diagnostics")
+        step_summaries["diagnostics"] = {"skipped": True}
+    else:
+        logger.info("[1/6] 运行 diagnostics")
+        from common.diagnostics import run_diagnostics as run_diagnostics_outputs  # noqa: E402
 
-    diagnostics_logger = build_logger(f"run_diagnostics.{experiment_id}", paths.logs_dir / "run_diagnostics.log")
-    step_start = time.perf_counter()
-    diagnostics_written = run_diagnostics_outputs(
-        stage1_dir=stage1_dir,
-        diagnostics_dir=paths.diagnostics_dir,
-        topk_values=topk_values,
-        yearly_top_vocab_k=yearly_top_vocab_k,
-        max_year_gap=max_year_gap,
-        logger=diagnostics_logger,
-    )
-    step_summaries["diagnostics"] = [repo_relative(path) for path in diagnostics_written]
-    logger.info("[1/6] diagnostics 完成，用时 %.1fs，输出 %s 个文件", time.perf_counter() - step_start, len(diagnostics_written))
+        diagnostics_logger = build_logger(f"run_diagnostics.{experiment_id}", paths.logs_dir / "run_diagnostics.log")
+        step_start = time.perf_counter()
+        diagnostics_written = run_diagnostics_outputs(
+            stage1_dir=stage1_dir,
+            diagnostics_dir=paths.diagnostics_dir,
+            topk_values=topk_values,
+            yearly_top_vocab_k=yearly_top_vocab_k,
+            max_year_gap=max_year_gap,
+            logger=diagnostics_logger,
+        )
+        step_summaries["diagnostics"] = [repo_relative(path) for path in diagnostics_written]
+        logger.info("[1/6] diagnostics 完成，用时 %.1fs，输出 %s 个文件", time.perf_counter() - step_start, len(diagnostics_written))
 
     logger.info("[2/6] 构造 experiment_patent_panel")
     step_start = time.perf_counter()
@@ -219,6 +225,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--stage1-dir", required=True, help="stage1 结果目录")
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
+    parser.add_argument("--skip-diagnostics", action="store_true", help="跳过 diagnostics 步骤")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
     parser.add_argument("--innovation-quality-cap", type=float, default=1000.0, help="firm-year 创新指数 Quality_q 上限")
     parser.add_argument("--analysis-quality-threshold", type=float, default=1.0, help="企业对比中的高质量阈值")
@@ -242,6 +249,7 @@ def main() -> None:
         stage1_dir=stage1_dir,
         shared_root=args.shared_root,
         output_root=args.output_root,
+        skip_diagnostics=args.skip_diagnostics,
         chunksize=args.chunksize,
         innovation_top_k=args.innovation_top_k,
         innovation_quality_cap=args.innovation_quality_cap,
