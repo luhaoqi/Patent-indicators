@@ -4,6 +4,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 
 PATENT_UCC_COL = "统一社会信用代码"
@@ -156,6 +157,45 @@ def prepare_valid_ucc_patents(
     return out[mask & out[quality_col].notna()].copy()
 
 
+def _invalid_ucc_expr(column: str) -> pl.Expr:
+    return pl.col(column).is_in(sorted(INVALID_UCC_VALUES))
+
+
+def _prepare_valid_ucc_patents_polars(
+    patent_df: pd.DataFrame,
+    *,
+    ucc_col: str = PATENT_UCC_COL,
+    quality_col: str = QUALITY_COL,
+    extra_columns: Optional[Sequence[str]] = None,
+) -> pl.DataFrame:
+    columns = [ucc_col, quality_col]
+    if extra_columns:
+        for column in extra_columns:
+            if column not in columns:
+                columns.append(column)
+
+    df = pl.from_pandas(patent_df[columns], include_index=False)
+    exprs: list[pl.Expr] = [
+        pl.col(ucc_col).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias(ucc_col),
+        pl.col(quality_col).cast(pl.Float64, strict=False).alias(quality_col),
+    ]
+    for column in columns:
+        if column in (ucc_col, quality_col):
+            continue
+        if column == PATENT_YEAR_COL or column == SPECIAL_YEAR_COL:
+            exprs.append(pl.col(column).cast(pl.Int64, strict=False).alias(column))
+        elif column == "is_special_year":
+            exprs.append(pl.col(column).cast(pl.Float64, strict=False).fill_null(0).cast(pl.Int8).alias(column))
+        else:
+            exprs.append(pl.col(column))
+
+    return (
+        df.with_columns(exprs)
+        .filter(~_invalid_ucc_expr(ucc_col))
+        .filter(pl.col(quality_col).is_not_null())
+    )
+
+
 def build_company_special_panel(
     patent_df: pd.DataFrame,
     special_df: pd.DataFrame,
@@ -189,20 +229,28 @@ def build_company_special_panel_from_ucc_set(
     ucc_col: str = PATENT_UCC_COL,
     quality_col: str = QUALITY_COL,
 ) -> pd.DataFrame:
-    df = prepare_valid_ucc_patents(patent_df, ucc_col=ucc_col, quality_col=quality_col)
     special_ucc_set = {value for value in special_uccs if value and value not in INVALID_UCC_VALUES}
+    df = _prepare_valid_ucc_patents_polars(
+        patent_df,
+        ucc_col=ucc_col,
+        quality_col=quality_col,
+    )
     company_agg = (
-        df.groupby(ucc_col, dropna=False)
+        df.group_by(ucc_col)
         .agg(
-            total_patents=(quality_col, "size"),
-            high_q_count=(quality_col, lambda series: int((to_numeric(series).fillna(-np.inf) >= quality_threshold).sum())),
-            mean_quality=(quality_col, "mean"),
-            max_quality=(quality_col, "max"),
+            pl.len().alias("total_patents"),
+            (pl.col(quality_col) >= quality_threshold).sum().cast(pl.Int64).alias("high_q_count"),
+            pl.col(quality_col).mean().alias("mean_quality"),
+            pl.col(quality_col).max().alias("max_quality"),
         )
-        .reset_index()
+        .with_columns(
+            pl.col("total_patents").cast(pl.Float64).log1p().alias("log_total_patents"),
+            pl.col(ucc_col).is_in(sorted(special_ucc_set)).cast(pl.Int8).alias("is_special"),
+        )
+        .to_pandas()
     )
     company_agg["log_total_patents"] = np.log1p(company_agg["total_patents"])
-    company_agg["is_special"] = company_agg[ucc_col].isin(special_ucc_set).astype(int)
+    company_agg["is_special"] = company_agg["is_special"].astype(int)
     return company_agg
 
 
@@ -242,18 +290,23 @@ def build_company_year_special_panel(
     year_col: str = PATENT_YEAR_COL,
     quality_col: str = QUALITY_COL,
 ) -> pd.DataFrame:
-    df = prepare_valid_ucc_patents(p_dyn, ucc_col=ucc_col, quality_col=quality_col)
-    df["is_special_year"] = to_numeric(df["is_special_year"]).fillna(0).astype(int)
+    df = _prepare_valid_ucc_patents_polars(
+        p_dyn,
+        ucc_col=ucc_col,
+        quality_col=quality_col,
+        extra_columns=[year_col, "is_special_year"],
+    )
     agg = (
-        df.groupby([ucc_col, year_col], dropna=False)
+        df.group_by([ucc_col, year_col])
         .agg(
-            total_patents=(quality_col, "size"),
-            high_q_count=(quality_col, lambda series: int((to_numeric(series).fillna(-np.inf) >= quality_threshold).sum())),
-            mean_quality=(quality_col, "mean"),
-            max_quality=(quality_col, "max"),
-            is_special_year=("is_special_year", "max"),
+            pl.len().alias("total_patents"),
+            (pl.col(quality_col) >= quality_threshold).sum().cast(pl.Int64).alias("high_q_count"),
+            pl.col(quality_col).mean().alias("mean_quality"),
+            pl.col(quality_col).max().alias("max_quality"),
+            pl.col("is_special_year").max().cast(pl.Int8).alias("is_special_year"),
         )
-        .reset_index()
+        .with_columns(pl.col("total_patents").cast(pl.Float64).log1p().alias("log_total_patents"))
+        .to_pandas()
     )
     agg["log_total_patents"] = np.log1p(agg["total_patents"])
     return agg
@@ -267,32 +320,42 @@ def build_company_year_abc_panel(
     year_col: str = PATENT_YEAR_COL,
     quality_col: str = QUALITY_COL,
 ) -> pd.DataFrame:
-    df = prepare_valid_ucc_patents(p_dyn, ucc_col=ucc_col, quality_col=quality_col)
-    df["is_special_year"] = to_numeric(df["is_special_year"]).fillna(0).astype("int8")
-    ever_special = df.groupby(ucc_col, sort=False)["is_special_year"].max().rename("ever_special").astype("int8")
-    df = df.join(ever_special, on=ucc_col)
-    df["firm_group_3"] = np.select(
-        [
-            (df["ever_special"] == 1) & (df["is_special_year"] == 1),
-            (df["ever_special"] == 1) & (df["is_special_year"] == 0),
-            (df["ever_special"] == 0),
-        ],
-        ["A_treated_year", "B_same_firm_other_year", "C_never_treated"],
-        default="C_never_treated",
+    df = _prepare_valid_ucc_patents_polars(
+        p_dyn,
+        ucc_col=ucc_col,
+        quality_col=quality_col,
+        extra_columns=[year_col, "is_special_year"],
     )
-    df["_high_q"] = (df[quality_col] >= quality_threshold).astype("int8")
-    agg = (
-        df.groupby([ucc_col, year_col], sort=False, observed=True)
-        .agg(
-            total_patents=(quality_col, "size"),
-            high_q_count=("_high_q", "sum"),
-            mean_quality=(quality_col, "mean"),
-            max_quality=(quality_col, "max"),
-            is_special_year=("is_special_year", "max"),
-            ever_special=("ever_special", "max"),
-            firm_group_3=("firm_group_3", "first"),
+    df = df.filter(pl.col(year_col).is_not_null())
+    ever_special = (
+        df.group_by(ucc_col)
+        .agg(pl.col("is_special_year").max().cast(pl.Int8).alias("ever_special"))
+    )
+    df = (
+        df.join(ever_special, on=ucc_col, how="left")
+        .with_columns(
+            pl.when((pl.col("ever_special") == 1) & (pl.col("is_special_year") == 1))
+            .then(pl.lit("A_treated_year"))
+            .when((pl.col("ever_special") == 1) & (pl.col("is_special_year") == 0))
+            .then(pl.lit("B_same_firm_other_year"))
+            .otherwise(pl.lit("C_never_treated"))
+            .alias("firm_group_3"),
+            (pl.col(quality_col) >= quality_threshold).cast(pl.Int8).alias("_high_q"),
         )
-        .reset_index()
+    )
+    agg = (
+        df.group_by([ucc_col, year_col])
+        .agg(
+            pl.len().alias("total_patents"),
+            pl.col("_high_q").sum().cast(pl.Int64).alias("high_q_count"),
+            pl.col(quality_col).mean().alias("mean_quality"),
+            pl.col(quality_col).max().alias("max_quality"),
+            pl.col("is_special_year").max().cast(pl.Int8).alias("is_special_year"),
+            pl.col("ever_special").max().cast(pl.Int8).alias("ever_special"),
+            pl.col("firm_group_3").first().alias("firm_group_3"),
+        )
+        .with_columns(pl.col("total_patents").cast(pl.Float64).log1p().alias("log_total_patents"))
+        .to_pandas()
     )
     agg["log_total_patents"] = np.log1p(agg["total_patents"])
     return agg
