@@ -11,6 +11,7 @@ if str(CURRENT_DIR) not in sys.path:
 
 import polars as pl  # noqa: E402
 
+from common.analysis import resolve_patent_year_col  # noqa: E402
 from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
@@ -79,11 +80,11 @@ def _read_ucc_list(path: Path) -> pl.DataFrame:
     )
 
 
-def _read_patents(path: Path, *, quality_cap: float) -> pl.DataFrame:
+def _read_patents(path: Path, *, quality_cap: float, year_col: str) -> pl.DataFrame:
     return (
         pl.scan_parquet(str(path))
         .select(
-            pl.col("申请年份").cast(pl.Int32, strict=False).alias("year"),
+            pl.col(year_col).cast(pl.Int32, strict=False).alias("year"),
             pl.col("统一社会信用代码").cast(pl.Utf8).str.strip_chars().alias("UCC"),
             pl.col("Quality_q").cast(pl.Float64, strict=False),
         )
@@ -105,8 +106,9 @@ def build_firm_year_innovation(
     shared_root: str = "outputs/shared",
     top_k: int = 10,
     quality_cap: float = 1000.0,
+    exact_date: bool = False,
 ):
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(
         f"build_firm_year_innovation.{experiment_id}",
@@ -131,7 +133,9 @@ def build_firm_year_innovation(
     logger.info("UCC 面板展开后行数: %s", ucc_map.height)
 
     logger.info("读取专利主表: %s", repo_relative(patent_path))
-    patents = _read_patents(patent_path, quality_cap=quality_cap)
+    patent_columns = pl.read_parquet(str(patent_path), n_rows=0).columns
+    year_col = resolve_patent_year_col(patent_columns, exact_date=exact_date)
+    patents = _read_patents(patent_path, quality_cap=quality_cap, year_col=year_col)
     logger.info("专利样本过滤后行数: %s", patents.height)
 
     logger.info("开始按 notebook 路径聚合 firm_year_innovation，top_k=%s", top_k)
@@ -177,6 +181,8 @@ def build_firm_year_innovation(
         "quality_cap": float(quality_cap),
         "method": f"Top{top_k}Mean",
         "implementation": "polars_streaming",
+        "year_col": year_col,
+        "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "build_firm_year_innovation.json", metadata)
     logger.info("firm_year_innovation 输出: %s", repo_relative(output_path))
@@ -192,6 +198,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--top-k", type=int, default=10, help="firm-year 创新指数采用的 TopK 均值")
     parser.add_argument("--quality-cap", type=float, default=1000.0, help="专利层 Quality_q 上限")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
     return parser
 
 
@@ -205,6 +212,7 @@ def main() -> None:
         shared_root=args.shared_root,
         top_k=args.top_k,
         quality_cap=args.quality_cap,
+        exact_date=args.exact_date,
     )
 
 

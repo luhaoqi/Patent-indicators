@@ -25,6 +25,7 @@ from common.analysis import (  # noqa: E402
     build_event_study_frame,
     build_group_comparison_table,
     filter_patents,
+    resolve_patent_year_col,
     to_numeric,
 )
 from common.io import build_logger, write_json  # noqa: E402
@@ -55,8 +56,9 @@ def analyze_special_firms(
     quality_threshold: float = 1.0,
     policy_start_year: int = 2008,
     event_window: int = 5,
+    exact_date: bool = False,
 ) -> dict[str, object]:
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(f"analyze_special_firms.{experiment_id}", paths.logs_dir / "analyze_special_firms.log")
     set_chinese_font(logger=logger)
@@ -65,6 +67,7 @@ def analyze_special_firms(
     if not patent_path.exists():
         raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
     patent_df = pd.read_parquet(patent_path)
+    year_col = resolve_patent_year_col(patent_df.columns, exact_date=exact_date)
     effective_firm_year_special_path = firm_year_special_labels_path
     effective_special_ucc_path = special_ucc_set_path
     if effective_firm_year_special_path is None or effective_special_ucc_path is None:
@@ -81,6 +84,8 @@ def analyze_special_firms(
     if effective_firm_year_special_path is None or effective_special_ucc_path is None:
         raise FileNotFoundError("缺少共享特殊企业标签，请先运行 run_shared_prep.py 生成 shared special_firm_labels")
     firm_year_special = pd.read_parquet(effective_firm_year_special_path)
+    if year_col != PATENT_YEAR_COL and PATENT_YEAR_COL in firm_year_special.columns and year_col not in firm_year_special.columns:
+        firm_year_special = firm_year_special.rename(columns={PATENT_YEAR_COL: year_col})
     special_uccs = (
         pd.read_parquet(effective_special_ucc_path)[PATENT_UCC_COL]
         .astype("string")
@@ -95,6 +100,7 @@ def analyze_special_firms(
     logger.info("开始过滤专利样本")
     filtered_patents = filter_patents(
         patent_df,
+        year_col=year_col,
         exclude_years=exclude_years,
         quality_min=quality_min,
         bs_min=bs_min,
@@ -144,6 +150,7 @@ def analyze_special_firms(
         exclude_years=exclude_years,
         quality_min=quality_min,
         bs_min=bs_min,
+        year_col=year_col,
     )
     p_dyn_path = paths.data_dir / "patents_special_year.parquet"
     p_dyn.to_parquet(p_dyn_path, index=False)
@@ -184,6 +191,7 @@ def analyze_special_firms(
     company_year_agg = build_company_year_special_panel(
         p_dyn,
         quality_threshold=quality_threshold,
+        year_col=year_col,
     )
     company_year_path = paths.data_dir / "company_year_special.parquet"
     company_year_agg.to_parquet(company_year_path, index=False)
@@ -217,16 +225,16 @@ def analyze_special_firms(
     logger.info("开始汇总 special-year 年度趋势")
     trend = (
         p_dyn.assign(_q=to_numeric(p_dyn[QUALITY_COL]))
-        .dropna(subset=[PATENT_YEAR_COL])
-        .groupby([PATENT_YEAR_COL, "is_special_year"], as_index=False)
+        .dropna(subset=[year_col])
+        .groupby([year_col, "is_special_year"], as_index=False)
         .agg(mean_quality=("_q", "mean"), n=("_q", "size"))
-        .sort_values([PATENT_YEAR_COL, "is_special_year"])
+        .sort_values([year_col, "is_special_year"])
     )
     trend.to_csv(paths.tables_dir / "tbl_special_year_trend.csv", index=False, encoding="utf-8-sig")
     plt.figure(figsize=(9, 4.8))
     for group_value, group_df in trend.groupby("is_special_year"):
         label = "Special-year" if int(group_value) == 1 else "Other-year"
-        plt.plot(group_df[PATENT_YEAR_COL].astype(int), group_df["mean_quality"], marker="o", label=label)
+        plt.plot(group_df[year_col].astype(int), group_df["mean_quality"], marker="o", label=label)
     plt.xlabel("Year")
     plt.ylabel("Mean Quality_q")
     plt.title("Yearly mean Quality_q: Special-year vs Other-year")
@@ -240,6 +248,7 @@ def analyze_special_firms(
     company_year_abc = build_company_year_abc_panel(
         p_dyn,
         quality_threshold=quality_threshold,
+        year_col=year_col,
     )
     company_year_abc_path = paths.data_dir / "company_year_abc.parquet"
     company_year_abc.to_parquet(company_year_abc_path, index=False)
@@ -299,15 +308,15 @@ def analyze_special_firms(
     save_figure(abc_firm_year_hist)
 
     yearly_mean = (
-        company_year_abc.groupby([PATENT_YEAR_COL, "firm_group_3"], sort=False)["mean_quality"]
+        company_year_abc.groupby([year_col, "firm_group_3"], sort=False)["mean_quality"]
         .mean()
         .reset_index()
     )
     yearly_mean.to_csv(paths.tables_dir / "tbl_abc_yearly_mean_quality.csv", index=False, encoding="utf-8-sig")
     plt.figure(figsize=(10, 5))
     for group_name in ABC_GROUPS:
-        series = yearly_mean[yearly_mean["firm_group_3"] == group_name].sort_values(PATENT_YEAR_COL)
-        plt.plot(series[PATENT_YEAR_COL], series["mean_quality"], label=ABC_LABELS[group_name])
+        series = yearly_mean[yearly_mean["firm_group_3"] == group_name].sort_values(year_col)
+        plt.plot(series[year_col], series["mean_quality"], label=ABC_LABELS[group_name])
     plt.xlabel("Year")
     plt.ylabel("Mean of mean_quality (firm-year)")
     plt.title("Yearly trend: mean_quality by group (2008+)")
@@ -317,7 +326,7 @@ def analyze_special_firms(
     save_figure(abc_yearly_mean_fig)
 
     yearly_high_q = (
-        company_year_abc.groupby([PATENT_YEAR_COL, "firm_group_3"], sort=False)[["high_q_count", "total_patents"]]
+        company_year_abc.groupby([year_col, "firm_group_3"], sort=False)[["high_q_count", "total_patents"]]
         .sum()
         .reset_index()
     )
@@ -325,8 +334,8 @@ def analyze_special_firms(
     yearly_high_q.to_csv(paths.tables_dir / "tbl_abc_yearly_high_q_share.csv", index=False, encoding="utf-8-sig")
     plt.figure(figsize=(10, 5))
     for group_name in ABC_GROUPS:
-        series = yearly_high_q[yearly_high_q["firm_group_3"] == group_name].sort_values(PATENT_YEAR_COL)
-        plt.plot(series[PATENT_YEAR_COL], series["high_q_share"], label=ABC_LABELS[group_name])
+        series = yearly_high_q[yearly_high_q["firm_group_3"] == group_name].sort_values(year_col)
+        plt.plot(series[year_col], series["high_q_share"], label=ABC_LABELS[group_name])
     plt.xlabel("Year")
     plt.ylabel(f"High-Q share (Quality_q >= {quality_threshold:g})")
     plt.title("Yearly trend: share of high-quality patents by group (2008+)")
@@ -370,7 +379,7 @@ def analyze_special_firms(
     abc_bar_fig = paths.figures_dir / "fig_abc_overall_compare.png"
     save_figure(abc_bar_fig)
 
-    event_study = build_event_study_frame(company_year_abc, window=event_window)
+    event_study = build_event_study_frame(company_year_abc, year_col=year_col, window=event_window)
     event_study.to_csv(paths.tables_dir / "tbl_event_study_mean_quality.csv", index=False, encoding="utf-8-sig")
     plt.figure(figsize=(9, 4.8))
     plt.plot(event_study["event_time"], event_study["mean_quality"])
@@ -412,6 +421,8 @@ def analyze_special_firms(
             repo_relative(paths.tables_dir / "tbl_patent_special_year_quality_summary.csv"),
             repo_relative(paths.tables_dir / "tbl_firm_year_abc_desc.csv"),
         ],
+        "year_col": year_col,
+        "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "analyze_special_firms.json", summary)
     logger.info("特殊企业相关图表、表格和中间数据已输出")
@@ -459,6 +470,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--quality-threshold", type=float, default=1.0, help="高质量阈值")
     parser.add_argument("--policy-start-year", type=int, default=2008, help="特殊企业政策生效年份")
     parser.add_argument("--event-window", type=int, default=5, help="事件研究窗口")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
     return parser
 
 
@@ -477,6 +489,7 @@ def main() -> None:
         quality_threshold=args.quality_threshold,
         policy_start_year=args.policy_start_year,
         event_window=args.event_window,
+        exact_date=args.exact_date,
     )
 
 

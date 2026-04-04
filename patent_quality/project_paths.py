@@ -34,13 +34,17 @@ class ExperimentLayout:
     root: Path
     stage1_dir: Path
     stage2_dir: Path
+    stage1_exact_dir: Path
+    stage2_exact_dir: Path
     verification_dir: Path
 
     def ensure_stage1_dirs(self) -> None:
         for directory in (
             self.root,
             self.stage1_dir,
+            self.stage1_exact_dir,
             self.stage1_dir / "logs",
+            self.stage1_exact_dir / "logs",
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -48,12 +52,19 @@ class ExperimentLayout:
         for directory in (
             self.root,
             self.stage2_dir,
+            self.stage2_exact_dir,
             self.stage2_dir / "metadata",
             self.stage2_dir / "data",
             self.stage2_dir / "diagnostics",
             self.stage2_dir / "figures",
             self.stage2_dir / "tables",
             self.stage2_dir / "logs",
+            self.stage2_exact_dir / "metadata",
+            self.stage2_exact_dir / "data",
+            self.stage2_exact_dir / "diagnostics",
+            self.stage2_exact_dir / "figures",
+            self.stage2_exact_dir / "tables",
+            self.stage2_exact_dir / "logs",
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +81,15 @@ class ExperimentLayout:
     def stage1_log_path(self, filename: str = "stage1.log") -> Path:
         return self.stage1_dir / "logs" / filename
 
+    def active_stage1_dir(self, exact_date: bool = False) -> Path:
+        return self.stage1_exact_dir if exact_date else self.stage1_dir
+
+    def active_stage2_dir(self, exact_date: bool = False) -> Path:
+        return self.stage2_exact_dir if exact_date else self.stage2_dir
+
+    def active_stage1_log_path(self, filename: str = "stage1.log", exact_date: bool = False) -> Path:
+        return self.active_stage1_dir(exact_date) / "logs" / filename
+
 
 def build_experiment_layout(
     experiment_id: str,
@@ -81,12 +101,14 @@ def build_experiment_layout(
         root=root,
         stage1_dir=root / "stage1",
         stage2_dir=root / "stage2",
+        stage1_exact_dir=root / "stage1_exact",
+        stage2_exact_dir=root / "stage2_exact",
         verification_dir=root / "verification",
     )
 
 
 def infer_experiment_id_from_stage1_dir(stage1_dir: PathLike) -> str:
     path_obj = resolve_project_path(stage1_dir)
-    if path_obj.name == "stage1" and path_obj.parent.name:
+    if path_obj.name in {"stage1", "stage1_exact"} and path_obj.parent.name:
         return path_obj.parent.name
     return path_obj.name

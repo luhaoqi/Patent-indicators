@@ -59,12 +59,14 @@ class ExperimentPaths:
     experiment_id: str
     root: Path
     stage1_dir: Path
+    stage2_dir: Path
     metadata_dir: Path
     data_dir: Path
     diagnostics_dir: Path
     figures_dir: Path
     tables_dir: Path
     logs_dir: Path
+    exact_date: bool = False
 
     def ensure_dirs(self) -> None:
         for directory in (
@@ -87,6 +89,7 @@ class ExperimentPaths:
             "experiment_id": self.experiment_id,
             "root": repo_relative(self.root),
             "stage1_dir": repo_relative(self.stage1_dir),
+            "stage2_dir": repo_relative(self.stage2_dir),
             "metadata_dir": repo_relative(self.metadata_dir),
             "data_dir": repo_relative(self.data_dir),
             "diagnostics_dir": repo_relative(self.diagnostics_dir),
@@ -96,18 +99,27 @@ class ExperimentPaths:
         }
 
 
-def build_experiment_paths(experiment_id: str, output_root: PathLike = DEFAULT_OUTPUT_ROOT) -> ExperimentPaths:
+def build_experiment_paths(
+    experiment_id: str,
+    output_root: PathLike = DEFAULT_OUTPUT_ROOT,
+    *,
+    exact_date: bool = False,
+) -> ExperimentPaths:
     layout = build_experiment_layout(experiment_id, output_root=output_root)
+    stage1_dir = layout.active_stage1_dir(exact_date)
+    stage2_dir = layout.active_stage2_dir(exact_date)
     return ExperimentPaths(
         experiment_id=experiment_id,
         root=layout.root,
-        stage1_dir=layout.stage1_dir,
-        metadata_dir=layout.stage2_dir / "metadata",
-        data_dir=layout.stage2_dir / "data",
-        diagnostics_dir=layout.stage2_dir / "diagnostics",
-        figures_dir=layout.stage2_dir / "figures",
-        tables_dir=layout.stage2_dir / "tables",
-        logs_dir=layout.stage2_dir / "logs",
+        stage1_dir=stage1_dir,
+        stage2_dir=stage2_dir,
+        metadata_dir=stage2_dir / "metadata",
+        data_dir=stage2_dir / "data",
+        diagnostics_dir=stage2_dir / "diagnostics",
+        figures_dir=stage2_dir / "figures",
+        tables_dir=stage2_dir / "tables",
+        logs_dir=stage2_dir / "logs",
+        exact_date=exact_date,
     )
 
 

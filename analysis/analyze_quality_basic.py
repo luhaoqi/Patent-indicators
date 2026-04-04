@@ -14,7 +14,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from scipy import stats  # noqa: E402
 
-from common.analysis import build_descriptive_table, filter_patents, to_numeric  # noqa: E402
+from common.analysis import build_descriptive_table, filter_patents, resolve_patent_year_col, to_numeric  # noqa: E402
 from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, repo_relative, resolve_repo_path  # noqa: E402
 from common.plotting import save_figure, set_chinese_font  # noqa: E402
@@ -31,8 +31,9 @@ def analyze_quality_basic(
     bs_min: float = 1e-6,
     quality_desc_threshold: float = 5.0,
     yearly_count_thresholds: Sequence[float] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0),
+    exact_date: bool = False,
 ) -> dict[str, object]:
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(f"analyze_quality_basic.{experiment_id}", paths.logs_dir / "analyze_quality_basic.log")
     set_chinese_font(logger=logger)
@@ -42,9 +43,11 @@ def analyze_quality_basic(
         raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
     logger.info("读取专利实验面板: %s", repo_relative(patent_path))
     patent_df = pd.read_parquet(patent_path)
+    year_col = resolve_patent_year_col(patent_df.columns, exact_date=exact_date)
     logger.info("开始按阈值过滤专利样本")
     filtered = filter_patents(
         patent_df,
+        year_col=year_col,
         exclude_years=exclude_years,
         quality_min=quality_min,
         bs_min=bs_min,
@@ -163,12 +166,12 @@ def analyze_quality_basic(
     logger.info("质量分布图已输出: %s", repo_relative(dist_path))
 
     logger.info("开始生成年度均值图表")
-    yearly_mean = filtered.groupby("申请年份")["Quality_q"].mean().sort_index().reset_index()
-    yearly_mean.columns = ["申请年份", "mean_quality"]
+    yearly_mean = filtered.groupby(year_col)["Quality_q"].mean().sort_index().reset_index()
+    yearly_mean.columns = [year_col, "mean_quality"]
     yearly_mean.to_csv(paths.tables_dir / "tbl_yearly_mean_quality.csv", index=False, encoding="utf-8-sig")
     plt.figure(figsize=(9, 4.8))
-    plt.plot(yearly_mean["申请年份"], yearly_mean["mean_quality"], marker="o")
-    plt.xlabel("申请年份")
+    plt.plot(yearly_mean[year_col], yearly_mean["mean_quality"], marker="o")
+    plt.xlabel(year_col)
     plt.ylabel("Mean(Quality_q)")
     plt.title("Yearly Mean of Quality_q")
     plt.grid(True, alpha=0.3)
@@ -178,16 +181,16 @@ def analyze_quality_basic(
 
     yearly_rows: list[dict[str, float]] = []
     plt.figure(figsize=(10, 5))
-    years = np.sort(filtered["申请年份"].dropna().unique())
+    years = np.sort(filtered[year_col].dropna().unique())
     logger.info("开始按阈值生成年度高质量专利计数，阈值数=%s", len(yearly_count_thresholds))
     for threshold in yearly_count_thresholds:
         temp = filtered[filtered["Quality_q"].fillna(0) >= threshold]
-        counts = temp.groupby("申请年份").size().reindex(years, fill_value=0)
+        counts = temp.groupby(year_col).size().reindex(years, fill_value=0)
         plt.plot(counts.index, counts.values, marker="o", label=f">= {threshold:g}")
         logger.info("阈值 %.3g 的年度统计完成", threshold)
         for year, count in counts.items():
-            yearly_rows.append({"申请年份": int(year), "threshold": float(threshold), "count": int(count)})
-    plt.xlabel("申请年份")
+            yearly_rows.append({year_col: int(year), "threshold": float(threshold), "count": int(count)})
+    plt.xlabel(year_col)
     plt.ylabel("Count")
     plt.title("Yearly counts by Quality_q thresholds")
     plt.grid(True, alpha=0.3)
@@ -216,6 +219,8 @@ def analyze_quality_basic(
             repo_relative(paths.tables_dir / "tbl_yearly_high_q_counts.csv"),
         ],
         "rows_used": int(len(filtered)),
+        "year_col": year_col,
+        "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "analyze_quality_basic.json", summary)
     logger.info("基础图表与表格已输出")
@@ -231,6 +236,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--quality-min", type=float, default=1e-5, help="Quality_q 最小阈值")
     parser.add_argument("--bs-min", type=float, default=1e-6, help="BS 最小阈值")
     parser.add_argument("--quality-desc-threshold", type=float, default=5.0, help="描述统计中的高质量阈值")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
     return parser
 
 
@@ -244,6 +250,7 @@ def main() -> None:
         quality_min=args.quality_min,
         bs_min=args.bs_min,
         quality_desc_threshold=args.quality_desc_threshold,
+        exact_date=args.exact_date,
     )
 
 

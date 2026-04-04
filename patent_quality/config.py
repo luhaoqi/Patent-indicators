@@ -44,6 +44,11 @@ class Config:
     postings_mmap: bool = True
     enable_maxscore: bool = False
     method_version: str = "ir_v1"
+    exact_date: bool = False
+    public_date_col: str = "公开公告日"
+    public_year_col: str = "公开公告年份"
+    public_date_ord_col: str = "公开公告日_ord"
+    shared_authorized_parts_dir: Optional[str] = "outputs/shared/raw_patent_authorized_parts"
 
     def __post_init__(self) -> None:
         self.data_path = os.fspath(self.data_path)
@@ -54,10 +59,40 @@ class Config:
         if self.log_file is not None:
             self.log_file = os.fspath(self.log_file)
         self.manual_stopwords_path = os.fspath(self.manual_stopwords_path)
+        if self.shared_authorized_parts_dir is not None:
+            self.shared_authorized_parts_dir = os.fspath(self.shared_authorized_parts_dir)
 
     @property
     def artifacts_path(self) -> Path:
         return Path(self.artifacts_dir)
+
+    @property
+    def active_year_col(self) -> str:
+        return self.public_year_col if self.exact_date else self.col_date
+
+    @property
+    def input_path(self) -> str:
+        if self.exact_date and self.shared_authorized_parts_dir:
+            return self.shared_authorized_parts_dir
+        return self.data_path
+
+    @property
+    def index_identity_columns(self) -> List[str]:
+        if self.exact_date:
+            return ["申请号", self.public_year_col, self.public_date_col, "专利名称"]
+        return ["申请号", self.col_date, "专利名称"]
+
+    @property
+    def index_debug_columns(self) -> List[str]:
+        if self.exact_date:
+            return [self.public_date_ord_col]
+        return []
+
+    @property
+    def token_metadata_columns(self) -> List[str]:
+        if self.exact_date:
+            return [self.public_year_col, self.public_date_col, self.public_date_ord_col]
+        return []
 
     @property
     def final_output_path(self) -> Path:

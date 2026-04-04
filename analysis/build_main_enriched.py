@@ -263,10 +263,11 @@ def build_experiment_patent_panel(
     output_root: str = "outputs/experiments",
     patent_master_path: Path,
     shared_root: str = "outputs/shared",
+    exact_date: bool = False,
 ) -> Dict[str, Path]:
     del shared_root
 
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(
         f"build_experiment_patent_panel.{experiment_id}",
@@ -336,6 +337,7 @@ def build_main_enriched(
     patent_master_path: Path,
     output_root: str = "outputs/experiments",
     shared_root: str = "outputs/shared",
+    exact_date: bool = False,
 ):
     result = build_experiment_patent_panel(
         experiment_id=experiment_id,
@@ -343,8 +345,9 @@ def build_main_enriched(
         output_root=output_root,
         patent_master_path=patent_master_path,
         shared_root=shared_root,
+        exact_date=exact_date,
     )
-    metadata_path = build_experiment_paths(experiment_id, output_root=output_root).metadata_dir / "build_main_enriched.json"
+    metadata_path = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date).metadata_dir / "build_main_enriched.json"
     write_json(
         metadata_path,
         {
@@ -352,6 +355,7 @@ def build_main_enriched(
             "stage1_output": repo_relative(stage1_output_path),
             "patent_master_path": repo_relative(patent_master_path),
             "experiment_patent_panel_path": repo_relative(result["experiment_patent_panel_path"]),
+            "exact_date": bool(exact_date),
         },
     )
     return result

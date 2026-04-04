@@ -6,7 +6,7 @@ from scipy import sparse
 from .config import Config
 from .log import get_logger
 from .postings import build_postings_for_year
-from .pair_compute import compute_pair_contrib
+from .pair_compute import compute_pair_contrib, compute_same_year_contrib, same_year_path
 import time
 
 
@@ -45,6 +45,19 @@ def _pair_list(cfg: Config, years: List[int]) -> List[Tuple[int, int]]:
     return lst
 
 
+def _same_year_list(cfg: Config, years: List[int]) -> List[int]:
+    if not cfg.exact_date:
+        return []
+    same_years = sorted(years)
+    p_json = os.path.join(cfg.artifacts_dir, "same_year_list.json")
+    try:
+        with open(p_json, "w", encoding="utf-8") as f:
+            json.dump({"years": same_years}, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return same_years
+
+
 def compute_bs_fs(cfg: Config) -> None:
     cfg.ensure_dirs()
     logger = get_logger(level=cfg.log_level)
@@ -54,17 +67,19 @@ def compute_bs_fs(cfg: Config) -> None:
         return
     logger.info(f"检测到向量年份范围: {min(years)} ~ {max(years)} (共{len(years)}个年份)")
     base = _resolve_vectors_base(cfg)
-    # Ensure postings exist for all years used in pairs
     logger.info("阶段5: 生成与缓存 pair_list")
     pairs = _pair_list(cfg, years)
-    # Ensure postings for all years that appear as target
-    target_years = sorted({b for (a, b) in pairs})
+    same_years = _same_year_list(cfg, years)
+    target_years = sorted({b for (a, b) in pairs} | set(same_years))
     for y in target_years:
         build_postings_for_year(cfg, y, base)
-    # Generate missing pair_contrib
     logger.info(f"阶段5: 计算 pair_contrib 对数={len(pairs)}")
     for (x, y) in pairs:
         compute_pair_contrib(cfg, x, y)
+    if same_years:
+        logger.info(f"阶段5: 计算 same_year 对数={len(same_years)}")
+        for year in same_years:
+            compute_same_year_contrib(cfg, year)
     # Summarize per year
     logger.info("阶段5: 汇总年份级 BS/FS")
     for t in years:
@@ -98,6 +113,12 @@ def compute_bs_fs(cfg: Config) -> None:
             obj = np.load(pair_p, allow_pickle=True)
             contrib = obj["contrib_x"] if x == t else obj["contrib_y"]
             fs += contrib.astype("float64", copy=False)
+        if cfg.exact_date:
+            same_year_p = same_year_path(cfg, t)
+            if os.path.exists(same_year_p):
+                obj = np.load(same_year_p, allow_pickle=True)
+                bs += obj["bs_same"].astype("float64", copy=False)
+                fs += obj["fs_same"].astype("float64", copy=False)
         with open(out, "w", encoding="utf-8") as f:
             f.write("row,BS,FS\n")
             for i in range(M_T.shape[0]):

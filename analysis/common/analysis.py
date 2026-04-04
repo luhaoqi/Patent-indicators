@@ -9,6 +9,7 @@ import polars as pl
 
 PATENT_UCC_COL = "统一社会信用代码"
 PATENT_YEAR_COL = "申请年份"
+PUBLIC_YEAR_COL = "公开公告年份"
 QUALITY_COL = "Quality_q"
 BS_COL = "BS"
 SPECIAL_YEAR_COL = "年份"
@@ -23,6 +24,17 @@ DEFAULT_SPECIAL_FLAG_COLS: tuple[str, ...] = (
 )
 
 INVALID_UCC_VALUES = {"", "-", "nan", "NaN", "None", "NULL", "null"}
+
+
+def resolve_patent_year_col(columns: Sequence[str], *, exact_date: bool = False) -> str:
+    names = set(columns)
+    if exact_date and PUBLIC_YEAR_COL in names:
+        return PUBLIC_YEAR_COL
+    if PATENT_YEAR_COL in names:
+        return PATENT_YEAR_COL
+    if PUBLIC_YEAR_COL in names:
+        return PUBLIC_YEAR_COL
+    raise KeyError("未找到可用的专利年份列")
 
 
 def to_numeric(series: pd.Series) -> pd.Series:

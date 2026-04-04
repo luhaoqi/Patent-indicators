@@ -13,7 +13,7 @@ if str(CURRENT_DIR) not in sys.path:
 import pandas as pd  # noqa: E402
 import pyarrow.parquet as pq  # noqa: E402
 
-from common.analysis import INVALID_UCC_VALUES, normalize_string_series, to_numeric  # noqa: E402
+from common.analysis import INVALID_UCC_VALUES, normalize_string_series, resolve_patent_year_col, to_numeric  # noqa: E402
 from common.io import READ_ENCODINGS, build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
@@ -146,13 +146,14 @@ def _sort_top_frame(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _normalize_patent_chunk(chunk: pd.DataFrame, *, missing_optional: list[str]) -> pd.DataFrame:
+def _normalize_patent_chunk(chunk: pd.DataFrame, *, missing_optional: list[str], year_col: str) -> pd.DataFrame:
     chunk = chunk.copy()
     _ensure_columns(chunk, missing_optional)
 
     chunk[ID_COL] = normalize_string_series(chunk[ID_COL])
     chunk[YEAR_COL] = to_numeric(chunk[YEAR_COL]).astype("Int64")
     chunk[PUBLIC_YEAR_COL] = to_numeric(chunk[PUBLIC_YEAR_COL]).astype("Int64")
+    chunk[year_col] = to_numeric(chunk[year_col]).astype("Int64")
     chunk[SCORE_COL] = to_numeric(chunk[SCORE_COL])
     chunk["BS"] = to_numeric(chunk["BS"])
     chunk["FS"] = to_numeric(chunk["FS"])
@@ -163,8 +164,8 @@ def _normalize_patent_chunk(chunk: pd.DataFrame, *, missing_optional: list[str])
     chunk[PATENT_TYPE_COL] = normalize_string_series(chunk[PATENT_TYPE_COL])
 
     chunk = chunk[chunk[ID_COL] != ""].copy()
-    chunk = chunk[chunk[YEAR_COL].notna() & chunk[SCORE_COL].notna()].copy()
-    chunk["raw_year_hint"] = chunk[PUBLIC_YEAR_COL].fillna(chunk[YEAR_COL]).astype("Int64")
+    chunk = chunk[chunk[year_col].notna() & chunk[SCORE_COL].notna()].copy()
+    chunk["raw_year_hint"] = chunk[PUBLIC_YEAR_COL].fillna(chunk[year_col]).astype("Int64")
     return chunk
 
 
@@ -173,22 +174,26 @@ def _select_top_patents_by_year(
     *,
     top_n: int,
     batch_size: int,
+    exact_date: bool,
     logger,
-) -> tuple[pd.DataFrame, list[str], dict[str, int]]:
+) -> tuple[pd.DataFrame, list[str], dict[str, int], str]:
     parquet = pq.ParquetFile(panel_path)
     available_columns = parquet.schema_arrow.names
+    year_col = resolve_patent_year_col(available_columns, exact_date=exact_date)
 
-    required_columns = [ID_COL, YEAR_COL, SCORE_COL]
+    required_columns = [ID_COL, year_col, SCORE_COL]
     missing_required = [column for column in required_columns if column not in available_columns]
     if missing_required:
         raise KeyError(f"experiment_patent_panel 缺少列: {missing_required}")
 
-    missing_optional = [column for column in OPTIONAL_PANEL_COLUMNS if column not in available_columns]
-    columns_to_read = [column for column in PANEL_COLUMNS_TO_READ if column in available_columns]
+    optional_columns = list(dict.fromkeys([YEAR_COL, PUBLIC_YEAR_COL, *OPTIONAL_PANEL_COLUMNS]))
+    missing_optional = [column for column in optional_columns if column not in available_columns]
+    columns_to_read = [column for column in list(dict.fromkeys([ID_COL, SCORE_COL, *optional_columns])) if column in available_columns]
 
     total_rows = int(parquet.metadata.num_rows)
     logger.info(
-        "开始按申请年份流式筛选年度 top%s，源文件总行数=%s，batch_size=%s，读取列数=%s",
+        "开始按 %s 流式筛选年度 top%s，源文件总行数=%s，batch_size=%s，读取列数=%s",
+        year_col,
         top_n,
         total_rows,
         batch_size,
@@ -204,12 +209,12 @@ def _select_top_patents_by_year(
         parquet.iter_batches(batch_size=batch_size, columns=columns_to_read, use_threads=True),
         start=1,
     ):
-        chunk = _normalize_patent_chunk(batch.to_pandas(), missing_optional=missing_optional)
+        chunk = _normalize_patent_chunk(batch.to_pandas(), missing_optional=missing_optional, year_col=year_col)
         rows_read += batch.num_rows
         rows_eligible += len(chunk)
 
         if not chunk.empty:
-            for year, year_chunk in chunk.groupby(YEAR_COL, sort=False):
+            for year, year_chunk in chunk.groupby(year_col, sort=False):
                 year_int = int(year)
                 existing = top_by_year.get(year_int)
                 merged = year_chunk if existing is None else pd.concat([existing, year_chunk], ignore_index=True)
@@ -234,7 +239,7 @@ def _select_top_patents_by_year(
             "batches": batch_count,
             "years": 0,
             "rows_selected": 0,
-        }
+        }, year_col
 
     top_frames: list[pd.DataFrame] = []
     years = sorted(top_by_year)
@@ -252,7 +257,7 @@ def _select_top_patents_by_year(
         "batches": batch_count,
         "years": len(years),
         "rows_selected": int(len(top_df)),
-    }
+    }, year_col
 
 
 def _fallback_company_names(patent_df: pd.DataFrame) -> pd.DataFrame:
@@ -286,6 +291,7 @@ def _attach_company_names(
     *,
     ucc_path: Path,
     batch_size: int,
+    year_col: str,
     logger,
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     target_uccs = {
@@ -374,7 +380,7 @@ def _attach_company_names(
         (ucc, int(year))
         if ucc and pd.notna(year)
         else None
-        for ucc, year in zip(merged[UCC_COL].tolist(), merged[YEAR_COL].tolist())
+        for ucc, year in zip(merged[UCC_COL].tolist(), merged[year_col].tolist())
     ]
     merged["证券ID"] = [
         _join_unique(year_level_stkid.get(key, set())) if key is not None else ""
@@ -581,8 +587,9 @@ def export_top_patents_by_year(
     ucc_batch_size: int = 200000,
     skip_company_lookup: bool = False,
     skip_raw_lookup: bool = False,
+    exact_date: bool = False,
 ) -> dict[str, object]:
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(
         f"export_top_patents_by_year.{experiment_id}",
@@ -624,10 +631,11 @@ def export_top_patents_by_year(
 
         logger.info("读取专利实验面板并流式筛选年度 top%s: %s", top_n, repo_relative(patent_path))
         step_started = time.perf_counter()
-        top_df, missing_optional, panel_selection_stats = _select_top_patents_by_year(
+        top_df, missing_optional, panel_selection_stats, year_col = _select_top_patents_by_year(
             patent_path,
             top_n=top_n,
             batch_size=panel_batch_size,
+            exact_date=exact_date,
             logger=logger,
         )
         logger.info("年度 top%s 筛选阶段完成，用时 %.1fs", top_n, time.perf_counter() - step_started)
@@ -648,6 +656,7 @@ def export_top_patents_by_year(
                 top_df,
                 ucc_path=effective_ucc_path,
                 batch_size=ucc_batch_size,
+                year_col=year_col,
                 logger=logger,
             )
             company_lookup_stats["skipped"] = False
@@ -703,7 +712,7 @@ def export_top_patents_by_year(
 
         output_paths: list[str] = []
         years_exported: list[int] = []
-        for year, year_df in top_df.groupby(YEAR_COL, sort=True):
+        for year, year_df in top_df.groupby(year_col, sort=True):
             year_int = int(year)
             years_exported.append(year_int)
             output_path = output_dir / f"top_patents_year={year_int}_top{top_n}.csv"
@@ -727,6 +736,8 @@ def export_top_patents_by_year(
             "company_name_source_counts": {str(key): int(value) for key, value in source_counts.items()},
             "raw_lookup_stats": raw_lookup_stats,
             "output_paths": output_paths,
+            "year_col": year_col,
+            "exact_date": bool(exact_date),
         }
         write_json(paths.metadata_dir / "export_top_patents_by_year.json", summary)
         logger.info("年度 top 专利明细已输出，年份数=%s，总行数=%s", len(years_exported), len(top_df))
@@ -748,6 +759,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--ucc-batch-size", type=int, default=200000, help="流式读取 UCC 映射的分块行数")
     parser.add_argument("--skip-company-lookup", action="store_true", help="跳过 UCC 公司名映射，仅保留申请人回退")
     parser.add_argument("--skip-raw-lookup", action="store_true", help="跳过共享 parquet 明细回查，摘要和日期列留空")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，按公开公告年份导出到 stage2_exact")
     return parser
 
 
@@ -765,6 +777,7 @@ def main() -> None:
         ucc_batch_size=args.ucc_batch_size,
         skip_company_lookup=args.skip_company_lookup,
         skip_raw_lookup=args.skip_raw_lookup,
+        exact_date=args.exact_date,
     )
 
 

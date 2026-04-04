@@ -45,7 +45,8 @@ def main() -> None:
     batch_status: List[Dict[str, object]] = []
     for experiment in experiments:
         experiment_id = experiment["id"]
-        paths = build_experiment_paths(experiment_id, output_root=output_root)
+        exact_date = bool(experiment.get("exact_date", shared.get("exact_date", False)))
+        paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
         paths.ensure_dirs()
         logger = build_logger(f"run_stage2_batch.{experiment_id}", paths.stage2_log_path())
 
@@ -73,6 +74,7 @@ def main() -> None:
             regression_year_min=int(experiment.get("regression_year_min", shared.get("regression_year_min", 2000))),
             regression_year_max=int(experiment.get("regression_year_max", shared.get("regression_year_max", 2023))),
             chunksize=int(experiment.get("chunksize", shared.get("chunksize", 100000))),
+            exact_date=exact_date,
         )
         batch_status.append(summary)
         logger.info("实验完成: %s", experiment_id)

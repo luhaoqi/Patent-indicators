@@ -9,11 +9,13 @@ def assemble_final_csv(cfg: Config, output_path: str = "patent_quality_output.cs
     cfg.ensure_dirs()
     logger = get_logger(level=cfg.log_level)
     rows_out: List[List[str]] = []
-    
-    # Build header
-    header = ["申请号", "申请年份", "专利名称"] + ["BS", "FS", "Quality_q"]+ cfg.extra_cols 
+
+    base_columns = cfg.index_identity_columns + cfg.extra_cols
+    header = base_columns[:]
+    insert_at = len(cfg.index_identity_columns)
+    header[insert_at:insert_at] = ["BS", "FS", "Quality_q"]
     rows_out.append(header)
-    
+
     stats_dir = os.path.join(cfg.artifacts_dir, "stats")
     index_dir = os.path.join(cfg.artifacts_dir, "index")
     for name in os.listdir(stats_dir):
@@ -34,17 +36,13 @@ def assemble_final_csv(cfg: Config, output_path: str = "patent_quality_output.cs
                 r = csv.DictReader(f)
                 i = 0
                 for row in r:
-                    pid = row["申请号"]
-                    year = row["申请年份"]
-                    title = row["专利名称"]
-                    
-                    extras = [row.get(c, "") for c in cfg.extra_cols]
-                    
                     bs = bs_list[i] if i < len(bs_list) else 0.0
                     fs = fs_list[i] if i < len(fs_list) else 0.0
                     q = fs / (bs + cfg.epsilon)
-                    
-                    out_row = [pid, year, title] + [f"{bs:.8f}", f"{fs:.8f}", f"{q:.8f}"] + extras
+
+                    prefix = [row.get(column, "") for column in cfg.index_identity_columns]
+                    suffix = [row.get(column, "") for column in cfg.extra_cols]
+                    out_row = prefix + [f"{bs:.8f}", f"{fs:.8f}", f"{q:.8f}"] + suffix
                     rows_out.append(out_row)
                     i += 1
             logger.info(f"合并年份={t} 行数={len(bs_list)}")

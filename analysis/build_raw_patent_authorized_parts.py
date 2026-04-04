@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 import csv
+import json
 from pathlib import Path
 import sys
 from typing import Any, Iterator, Optional, TypedDict
 
+import numpy as np
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -22,6 +24,10 @@ DEFAULT_RAW_PATENT_DIR = "data/raw/中国专利分年份保存数据1985-2025"
 PATENT_TYPE_COL = "专利类型"
 AUTHORIZED_PATENT_TYPE = "发明授权"
 ID_COL = "申请号"
+PUBLIC_DATE_COL = "公开公告日"
+PUBLIC_YEAR_COL = "公开公告年份"
+PUBLIC_DATE_ORD_COL = "公开公告日_ord"
+INVALID_PUBLIC_DATE_ORD = np.iinfo(np.int32).max
 
 
 class BuildRawPatentAuthorizedPartsResult(TypedDict):
@@ -121,8 +127,51 @@ def _normalize_authorized_mask(chunk: pd.DataFrame) -> pd.Series:
 def _table_from_chunk(chunk: pd.DataFrame, *, column_order: list[str]) -> pa.Table:
     ordered = chunk.reindex(columns=column_order).copy()
     for column in column_order:
-        ordered[column] = ordered[column].astype("string")
+        if column == PUBLIC_DATE_ORD_COL:
+            ordered[column] = pd.to_numeric(ordered[column], errors="coerce").fillna(INVALID_PUBLIC_DATE_ORD).astype("int32")
+        else:
+            ordered[column] = ordered[column].astype("string")
     return pa.Table.from_pandas(ordered, preserve_index=False)
+
+
+def _attach_table_metadata(table: pa.Table, *, invalid_publish_date_rows: int) -> pa.Table:
+    metadata = dict(table.schema.metadata or {})
+    metadata.update(
+        {
+            b"sort_by": json.dumps([PUBLIC_DATE_ORD_COL, ID_COL], ensure_ascii=False).encode("utf-8"),
+            b"date_col": PUBLIC_DATE_COL.encode("utf-8"),
+            b"year_col": PUBLIC_YEAR_COL.encode("utf-8"),
+            b"invalid_publish_date_rows": str(int(invalid_publish_date_rows)).encode("utf-8"),
+        }
+    )
+    return table.replace_schema_metadata(metadata)
+
+
+def _build_public_date_ord(series: pd.Series) -> tuple[pd.Series, int]:
+    text = series.astype("string").fillna("").str.strip()
+    parsed = pd.to_datetime(text, errors="coerce")
+    parsed_days = parsed.to_numpy(dtype="datetime64[D]")
+    valid_mask = parsed.notna().to_numpy()
+    ord_values = np.full(len(series), INVALID_PUBLIC_DATE_ORD, dtype=np.int32)
+    if valid_mask.any():
+        ord_values[valid_mask] = parsed_days[valid_mask].astype(np.int32, copy=False)
+    return pd.Series(ord_values, index=series.index, dtype="int32"), int((~valid_mask).sum())
+
+
+def _ensure_public_year(chunk: pd.DataFrame) -> pd.DataFrame:
+    chunk = chunk.copy()
+    if PUBLIC_YEAR_COL not in chunk.columns:
+        chunk[PUBLIC_YEAR_COL] = pd.Series([""] * len(chunk), index=chunk.index, dtype="string")
+
+    public_year = chunk[PUBLIC_YEAR_COL].astype("string").fillna("").str.strip()
+    needs_fill = public_year.eq("")
+    if needs_fill.any() and PUBLIC_DATE_COL in chunk.columns:
+        parsed = pd.to_datetime(chunk.loc[needs_fill, PUBLIC_DATE_COL].astype("string").fillna("").str.strip(), errors="coerce")
+        filled = parsed.dt.year.astype("Int64").astype("string").fillna("")
+        public_year = public_year.copy()
+        public_year.loc[needs_fill] = filled
+    chunk[PUBLIC_YEAR_COL] = public_year
+    return chunk
 
 
 def build_raw_patent_authorized_parts(
@@ -156,6 +205,7 @@ def build_raw_patent_authorized_parts(
         total_rows_written = 0
         total_rows_healed = 0
         total_rows_skipped_bad_width = 0
+        total_invalid_public_date_rows = 0
 
         for index, csv_path in enumerate(csv_paths, start=1):
             output_path = output_dir / f"{csv_path.stem}.parquet"
@@ -174,47 +224,64 @@ def build_raw_patent_authorized_parts(
 
             logger.info("转换原始专利文件 [%s/%s]: %s", index, len(csv_paths), repo_relative(csv_path))
             reader, read_stats = _open_csv_reader(csv_path, chunksize=chunksize)
-            writer: Optional[pq.ParquetWriter] = None
             column_order: list[str] = list(read_stats["columns"])
+            if PUBLIC_YEAR_COL not in column_order:
+                column_order.append(PUBLIC_YEAR_COL)
+            if PUBLIC_DATE_ORD_COL not in column_order:
+                column_order.append(PUBLIC_DATE_ORD_COL)
             rows_read = 0
             rows_written = 0
+            invalid_public_date_rows = 0
+            authorized_rows = 0
+            authorized_chunks: list[pd.DataFrame] = []
 
-            try:
-                for chunk_index, chunk in enumerate(reader, start=1):
-                    rows_read += len(chunk)
-                    mask = _normalize_authorized_mask(chunk)
-                    chunk = chunk.loc[mask].copy()
-                    if chunk.empty:
-                        continue
+            for chunk_index, chunk in enumerate(reader, start=1):
+                rows_read += len(chunk)
+                mask = _normalize_authorized_mask(chunk)
+                chunk = chunk.loc[mask].copy()
+                if chunk.empty:
+                    continue
+                if ID_COL in chunk.columns:
+                    chunk[ID_COL] = chunk[ID_COL].astype("string").fillna("").str.strip()
+                chunk = _ensure_public_year(chunk)
+                chunk[PUBLIC_DATE_ORD_COL], invalid_count = _build_public_date_ord(
+                    chunk[PUBLIC_DATE_COL] if PUBLIC_DATE_COL in chunk.columns else pd.Series([""] * len(chunk), index=chunk.index)
+                )
+                invalid_public_date_rows += invalid_count
+                authorized_chunks.append(chunk.reindex(columns=column_order))
+                authorized_rows += len(chunk)
 
-                    if ID_COL in chunk.columns:
-                        chunk[ID_COL] = chunk[ID_COL].astype("string").fillna("").str.strip()
+                if chunk_index == 1 or chunk_index % 10 == 0:
+                    logger.info(
+                        "parquet 转换进度 [%s/%s]: %s, chunk=%s, 已读行数=%s, 已保留授权行=%s",
+                        index,
+                        len(csv_paths),
+                        repo_relative(csv_path),
+                        chunk_index,
+                        rows_read,
+                        authorized_rows,
+                    )
 
-                    table = _table_from_chunk(chunk, column_order=column_order)
-                    if writer is None:
-                        writer = pq.ParquetWriter(output_path, table.schema, compression=compression)
-                    else:
-                        table = table.cast(writer.schema, safe=False)
-                    writer.write_table(table)
-                    rows_written += table.num_rows
-
-                    if chunk_index == 1 or chunk_index % 10 == 0:
-                        logger.info(
-                            "parquet 转换进度 [%s/%s]: %s, chunk=%s, 已读行数=%s, 已写入发明授权=%s",
-                            index,
-                            len(csv_paths),
-                            repo_relative(csv_path),
-                            chunk_index,
-                            rows_read,
-                            rows_written,
-                        )
-            finally:
-                if writer is not None:
-                    writer.close()
-
-            if writer is None:
-                empty_df = pd.DataFrame({column: pd.Series(dtype="string") for column in column_order})
-                empty_table = pa.Table.from_pandas(empty_df, preserve_index=False)
+            if authorized_chunks:
+                authorized_df = pd.concat(authorized_chunks, ignore_index=True)
+                sort_columns = [PUBLIC_DATE_ORD_COL]
+                if ID_COL in authorized_df.columns:
+                    sort_columns.append(ID_COL)
+                authorized_df = authorized_df.sort_values(sort_columns, ascending=True, kind="mergesort").reset_index(drop=True)
+                table = _attach_table_metadata(
+                    _table_from_chunk(authorized_df, column_order=column_order),
+                    invalid_publish_date_rows=invalid_public_date_rows,
+                )
+                pq.write_table(table, output_path, compression=compression)
+                rows_written = int(table.num_rows)
+            else:
+                empty_df = pd.DataFrame(
+                    {
+                        column: pd.Series(dtype="int32" if column == PUBLIC_DATE_ORD_COL else "string")
+                        for column in column_order
+                    }
+                )
+                empty_table = _attach_table_metadata(pa.Table.from_pandas(empty_df, preserve_index=False), invalid_publish_date_rows=0)
                 pq.write_table(empty_table, output_path, compression=compression)
 
             rows_scanned = int(read_stats["rows_scanned"])
@@ -225,8 +292,9 @@ def build_raw_patent_authorized_parts(
             total_rows_written += rows_written
             total_rows_healed += rows_healed
             total_rows_skipped_bad_width += rows_skipped_bad_width
+            total_invalid_public_date_rows += invalid_public_date_rows
             logger.info(
-                "parquet 转换完成 [%s/%s]: %s -> %s，扫描行数=%s，可用行数=%s，发明授权行数=%s，尾空字段修复=%s，异常宽度跳过=%s",
+                "parquet 转换完成 [%s/%s]: %s -> %s，扫描行数=%s，可用行数=%s，发明授权行数=%s，发布日期无效=%s，尾空字段修复=%s，异常宽度跳过=%s",
                 index,
                 len(csv_paths),
                 repo_relative(csv_path),
@@ -234,6 +302,7 @@ def build_raw_patent_authorized_parts(
                 rows_scanned,
                 rows_read,
                 rows_written,
+                invalid_public_date_rows,
                 rows_healed,
                 rows_skipped_bad_width,
             )
@@ -245,8 +314,12 @@ def build_raw_patent_authorized_parts(
                     "rows_scanned": rows_scanned,
                     "rows_read": int(rows_read),
                     "rows_written": int(rows_written),
+                    "invalid_publish_date_rows": int(invalid_public_date_rows),
                     "rows_healed_trailing_empty_field": rows_healed,
                     "rows_skipped_bad_width": rows_skipped_bad_width,
+                    "sort_by": [PUBLIC_DATE_ORD_COL, ID_COL],
+                    "date_col": PUBLIC_DATE_COL,
+                    "year_col": PUBLIC_YEAR_COL,
                     "skipped": False,
                 }
             )
@@ -263,6 +336,10 @@ def build_raw_patent_authorized_parts(
             "rows_written_total": int(total_rows_written),
             "rows_healed_trailing_empty_field_total": int(total_rows_healed),
             "rows_skipped_bad_width_total": int(total_rows_skipped_bad_width),
+            "invalid_publish_date_rows_total": int(total_invalid_public_date_rows),
+            "sort_by": [PUBLIC_DATE_ORD_COL, ID_COL],
+            "date_col": PUBLIC_DATE_COL,
+            "year_col": PUBLIC_YEAR_COL,
             "parts": parts_summary,
         }
         write_json(metadata_path, summary)

@@ -119,8 +119,9 @@ def run_stage2(
     regression_year_max: int = 2023,
     chunksize: int = 100000,
     resume_existing: bool = True,
+    exact_date: bool = False,
 ) -> Dict[str, Any]:
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     shared_paths = build_shared_paths(shared_root)
 
@@ -173,6 +174,7 @@ def run_stage2(
                 "financial_panel_path": repo_relative(financial_panel_path),
             }
         },
+        exact_date=exact_date,
     )
     write_json(paths.metadata_dir / "stage2_config.json", stage2_config.to_payload())
 
@@ -232,6 +234,7 @@ def run_stage2(
             output_root=output_root,
             patent_master_path=patent_master_path,
             shared_root=shared_root,
+            exact_date=exact_date,
         )
         experiment_patent_panel_path = experiment_panel_result["experiment_patent_panel_path"]
         step_summaries["build_experiment_patent_panel"] = {
@@ -257,6 +260,7 @@ def run_stage2(
             ucc_exploded_path=ucc_exploded_path,
             shared_root=shared_root,
             top_n=top_patents_per_year,
+            exact_date=exact_date,
         )
         step_summaries["export_top_patents_by_year"] = top_patent_summary
         logger.info("[3/7] export_top_patents_by_year 完成，用时 %.1fs", time.perf_counter() - step_start)
@@ -279,6 +283,7 @@ def run_stage2(
             quality_min=quality_min,
             bs_min=bs_min,
             quality_desc_threshold=quality_desc_threshold,
+            exact_date=exact_date,
         )
         step_summaries["analyze_quality_basic"] = basic_summary
         logger.info("[4/7] analyze_quality_basic 完成，用时 %.1fs", time.perf_counter() - step_start)
@@ -306,6 +311,7 @@ def run_stage2(
             quality_threshold=analysis_quality_threshold,
             policy_start_year=policy_start_year,
             event_window=event_window,
+            exact_date=exact_date,
         )
         step_summaries["analyze_special_firms"] = special_summary
         logger.info("[5/7] analyze_special_firms 完成，用时 %.1fs", time.perf_counter() - step_start)
@@ -325,6 +331,7 @@ def run_stage2(
             shared_root=shared_root,
             top_k=innovation_top_k,
             quality_cap=innovation_quality_cap,
+            exact_date=exact_date,
         )
         step_summaries["build_firm_year_innovation"] = repo_relative(innovation_path)
         logger.info("[6/7] build_firm_year_innovation 完成，用时 %.1fs", time.perf_counter() - step_start)
@@ -347,6 +354,7 @@ def run_stage2(
             shared_root=shared_root,
             year_min=regression_year_min,
             year_max=regression_year_max,
+            exact_date=exact_date,
         )
         step_summaries["run_regressions"] = regression_summary
         logger.info("[7/7] run_regressions 完成，用时 %.1fs", time.perf_counter() - step_start)
@@ -356,6 +364,7 @@ def run_stage2(
         "stage1_dir": repo_relative(stage1_dir),
         "shared_root": repo_relative(shared_paths.root),
         "output_root": output_root,
+        "exact_date": bool(exact_date),
         "config_path": repo_relative(paths.metadata_dir / "stage2_config.json"),
         "steps": step_summaries,
     }
@@ -384,6 +393,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--regression-year-max", type=int, default=2023, help="回归最大年份")
     parser.add_argument("--chunksize", type=int, default=100000, help="仅写入 metadata 的 patent_master 构造 chunksize")
     parser.add_argument("--force-rerun", action="store_true", help="忽略已有 stage2 产物并强制重跑")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，输出到 stage2_exact")
     return parser
 
 
@@ -410,6 +420,7 @@ def main() -> None:
         regression_year_min=args.regression_year_min,
         regression_year_max=args.regression_year_max,
         resume_existing=not args.force_rerun,
+        exact_date=args.exact_date,
     )
 
 

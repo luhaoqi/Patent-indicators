@@ -171,7 +171,8 @@ def vectorize_by_year(cfg: Config) -> None:
         data: List[float] = []
         ids: List[str] = []
         titles: List[str] = []
-        extra_data_list: List[Dict[str, str]] = []
+        index_meta_list: List[Dict[str, str]] = []
+        index_columns = list(dict.fromkeys(cfg.index_identity_columns + cfg.index_debug_columns + cfg.extra_cols))
         
         import sys
         sys.stdout.flush()
@@ -198,7 +199,12 @@ def vectorize_by_year(cfg: Config) -> None:
                 row_idx = len(ids)
                 ids.append(pid)
                 titles.append(title)
-                extra_data_list.append(extra_vals)
+                row_meta = {cfg.active_year_col: str(y)}
+                for c in cfg.token_metadata_columns:
+                    row_meta[c] = obj.get(c, "")
+                for c in cfg.extra_cols:
+                    row_meta[c] = extra_vals.get(c, "")
+                index_meta_list.append(row_meta)
                 
                 for j, cnt in tf.items():
                     rows.append(row_idx)
@@ -212,12 +218,20 @@ def vectorize_by_year(cfg: Config) -> None:
             # Save index with extra cols using csv writer
             with open(os.path.join(cfg.artifacts_dir, "index", f"year={y}.csv"), "w", encoding="utf-8", newline='') as fidx:
                 writer = csv.writer(fidx)
-                header = ["row", "申请号", "申请年份", "专利名称"] + cfg.extra_cols
+                header = ["row"] + index_columns
                 writer.writerow(header)
                 for i, pid in enumerate(ids):
-                    row = [i, pid, y, titles[i]]
-                    for c in cfg.extra_cols:
-                        row.append(extra_data_list[i].get(c, ""))
+                    meta = index_meta_list[i]
+                    row = [i]
+                    for column in index_columns:
+                        if column == "申请号":
+                            row.append(pid)
+                        elif column == "专利名称":
+                            row.append(titles[i])
+                        elif column == cfg.active_year_col and not cfg.exact_date:
+                            row.append(y)
+                        else:
+                            row.append(meta.get(column, ""))
                     writer.writerow(row)
                     
             nnz = m.nnz

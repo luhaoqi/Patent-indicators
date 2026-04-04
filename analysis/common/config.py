@@ -9,6 +9,7 @@ from typing import Any, Optional, Sequence
 class Stage2InputsConfig:
     stage1_dir: str
     shared_root: str
+    exact_date: bool = False
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,7 @@ class Stage2Config:
         regression_year_max: int,
         chunksize: int,
         notes: Optional[dict[str, Any]] = None,
+        exact_date: bool = False,
     ) -> "Stage2Config":
         grouped_exclude_years = tuple(int(value) for value in exclude_years)
         return cls(
@@ -110,6 +112,7 @@ class Stage2Config:
             inputs=Stage2InputsConfig(
                 stage1_dir=str(stage1_dir),
                 shared_root=str(shared_root),
+                exact_date=bool(exact_date),
             ),
             diagnostics=DiagnosticsConfig(
                 skip=bool(skip_diagnostics),

@@ -28,10 +28,11 @@ def run_regressions(
     shared_root: str = "outputs/shared",
     year_min: int = 2000,
     year_max: int = 2023,
+    exact_date: bool = False,
 ) -> dict[str, object]:
     from linearmodels.panel import PanelOLS
 
-    paths = build_experiment_paths(experiment_id, output_root=output_root)
+    paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
     logger = build_logger(f"run_regressions.{experiment_id}", paths.logs_dir / "run_regressions.log")
     set_chinese_font(logger=logger)
@@ -187,6 +188,7 @@ def run_regressions(
         "table_outputs": [repo_relative(summary_csv), repo_relative(summary_tex)] + text_outputs,
         "figure_outputs": [repo_relative(coefficient_fig)] if coefficient_fig is not None else [],
         "models_run": [row["model"] for row in summary_rows],
+        "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "run_regressions.json", summary)
     return summary
@@ -228,6 +230,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--year-min", type=int, default=2000, help="财务样本最小年份")
     parser.add_argument("--year-max", type=int, default=2023, help="财务样本最大年份")
+    parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
     return parser
 
 
@@ -241,6 +244,7 @@ def main() -> None:
         shared_root=args.shared_root,
         year_min=args.year_min,
         year_max=args.year_max,
+        exact_date=args.exact_date,
     )
 
 
