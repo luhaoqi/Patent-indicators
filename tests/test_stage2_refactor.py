@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -558,6 +559,41 @@ class Stage2RefactorTests(unittest.TestCase):
             parquet_df = pd.read_parquet(parquet_path)
 
             self.assertEqual(parquet_df["申请号"].tolist(), ["P1", "P2"])
+
+    def test_build_raw_patent_authorized_parts_heals_trailing_empty_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            raw_dir = root / "raw"
+            shared_root = root / "shared"
+            raw_dir.mkdir()
+
+            raw_csv = raw_dir / "中国专利数据库2020年.csv"
+            raw_csv.write_text(
+                "\n".join(
+                    [
+                        "申请号,专利类型,专利名称,摘要文本,申请日,公开公告日,授权公告日,申请人",
+                        "P1,发明授权,标题1,摘要1,2020-01-01,2020-06-01,2020-07-01,申请人1",
+                        "P2,发明授权,标题2,摘要2,2020-01-02,2020-06-02,2020-07-02,申请人2,",
+                        "P3,发明申请,标题3,摘要3,2020-01-03,2020-06-03,,申请人3,",
+                    ]
+                ),
+                encoding="utf-8-sig",
+            )
+
+            result = build_raw_patent_authorized_parts(
+                raw_patent_dir=raw_dir,
+                shared_root=str(shared_root),
+                chunksize=2,
+                overwrite=True,
+            )
+            parquet_path = result["output_dir"] / "中国专利数据库2020年.parquet"
+            parquet_df = pd.read_parquet(parquet_path)
+            metadata = json.loads((result["output_dir"] / "metadata.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(parquet_df["申请号"].tolist(), ["P1", "P2"])
+            self.assertEqual(metadata["rows_healed_trailing_empty_field_total"], 2)
+            self.assertEqual(metadata["rows_skipped_bad_width_total"], 0)
+            self.assertEqual(metadata["parts"][0]["rows_scanned"], 3)
 
 
 if __name__ == "__main__":
