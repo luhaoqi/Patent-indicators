@@ -26,16 +26,19 @@
 4. [STAGE2_REFACTOR_PLAN.md](./STAGE2_REFACTOR_PLAN.md)
    - 第二阶段重构方案：共享预处理层与每实验分析层拆分
 
-5. [analysis/README.md](../analysis/README.md)
+5. [严格发布时间_exact_date改造方案.md](./严格发布时间_exact_date改造方案.md)
+   - `stage1_exact / stage2_exact` 方案，按 `公开公告日 / 公开公告年份` 计算严格日期窗口
+
+6. [analysis/README.md](../analysis/README.md)
    - 第二阶段当前脚本入口和 shared prep / stage2 结构
 
-6. [STAT_改造说明.md](./STAT_改造说明.md)
+7. [STAT_改造说明.md](./STAT_改造说明.md)
    - 历史设计文档，主要记录早期脚本化改造思路
 
-7. [STAGE2_FLOW_DETAILED.md](./STAGE2_FLOW_DETAILED.md)
+8. [STAGE2_FLOW_DETAILED.md](./STAGE2_FLOW_DETAILED.md)
    - 历史流程文档，主要描述重构前的 stage2 7 步流程
 
-8. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
+9. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
    - 性能优化与验证思路
 
 ---
