@@ -20,6 +20,8 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", help="覆盖 manifest.shared.output_root")
     parser.add_argument("--shared-root", help="覆盖 manifest.shared.shared_root")
     parser.add_argument("--quality-threshold", type=float, help="覆盖 manifest/shared 中的高质量阈值")
+    parser.add_argument("--top-patents-per-year", type=int, help="覆盖 manifest/shared 中的年度 top 专利数量")
+    parser.add_argument("--top-patents-raw-dir", help="覆盖 manifest/shared 中的年度 top 专利原始数据目录")
     parser.add_argument("--skip-diagnostics", action="store_true", help="覆盖 manifest，跳过 diagnostics")
     return parser
 
@@ -39,6 +41,8 @@ def main() -> None:
     output_root = _shared_value(shared, "output_root", args.output_root) or "outputs/experiments"
     shared_root = _shared_value(shared, "shared_root", args.shared_root) or "outputs/shared"
     quality_threshold = float(_shared_value(shared, "analysis_quality_threshold", args.quality_threshold) or 1.0)
+    default_top_patents = args.top_patents_per_year if args.top_patents_per_year is not None else 100
+    default_top_patents_raw_dir = _shared_value(shared, "top_patents_raw_dir", args.top_patents_raw_dir) or "data/raw/中国专利分年份保存数据1985-2025"
 
     batch_status: List[Dict[str, object]] = []
     for experiment in experiments:
@@ -59,6 +63,8 @@ def main() -> None:
             topk_values=experiment.get("topk_values", shared.get("topk_values", [10, 30, 50])),
             yearly_top_vocab_k=int(experiment.get("yearly_top_vocab_k", shared.get("yearly_top_vocab_k", 50))),
             max_year_gap=int(experiment.get("max_year_gap", shared.get("max_year_gap", 5))),
+            top_patents_per_year=int(experiment.get("top_patents_per_year", shared.get("top_patents_per_year", default_top_patents))),
+            top_patents_raw_dir=str(experiment.get("top_patents_raw_dir", default_top_patents_raw_dir)),
             analysis_quality_threshold=float(experiment.get("analysis_quality_threshold", quality_threshold)),
             quality_desc_threshold=float(experiment.get("quality_desc_threshold", shared.get("quality_desc_threshold", 5.0))),
             quality_min=float(experiment.get("quality_min", shared.get("quality_min", 1e-5))),

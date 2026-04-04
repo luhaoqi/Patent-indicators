@@ -18,6 +18,7 @@ from build_main_enriched import build_experiment_patent_panel  # noqa: E402
 from common.config import Stage2Config  # noqa: E402
 from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
+from export_top_patents_by_year import export_top_patents_by_year  # noqa: E402
 from run_regressions import run_regressions  # noqa: E402
 
 
@@ -105,6 +106,8 @@ def run_stage2(
     yearly_top_vocab_k: int = 50,
     max_year_gap: int = 5,
     exclude_years: Sequence[int] = (1985, 1986),
+    top_patents_per_year: int = 100,
+    top_patents_raw_dir: str = "data/raw/中国专利分年份保存数据1985-2025",
     quality_min: float = 1e-5,
     bs_min: float = 1e-6,
     analysis_quality_threshold: float = 1.0,
@@ -149,6 +152,8 @@ def run_stage2(
         yearly_top_vocab_k=yearly_top_vocab_k,
         max_year_gap=max_year_gap,
         exclude_years=exclude_years,
+        top_patents_per_year=top_patents_per_year,
+        top_patents_raw_dir=top_patents_raw_dir,
         quality_min=quality_min,
         bs_min=bs_min,
         analysis_quality_threshold=analysis_quality_threshold,
@@ -181,7 +186,7 @@ def run_stage2(
     step_summaries: Dict[str, Any] = {}
 
     if skip_diagnostics:
-        logger.info("[1/6] 跳过 diagnostics")
+        logger.info("[1/7] 跳过 diagnostics")
         step_summaries["diagnostics"] = {"skipped": True}
     else:
         diagnostics_paths = _diagnostics_output_paths(
@@ -190,10 +195,10 @@ def run_stage2(
             yearly_top_vocab_k=yearly_top_vocab_k,
         )
         if resume_existing and _all_exist(diagnostics_paths):
-            logger.info("[1/6] 复用已有 diagnostics 产物，跳过计算")
+            logger.info("[1/7] 复用已有 diagnostics 产物，跳过计算")
             step_summaries["diagnostics"] = [repo_relative(path) for path in diagnostics_paths]
         else:
-            logger.info("[1/6] 运行 diagnostics")
+            logger.info("[1/7] 运行 diagnostics")
             from common.diagnostics import run_diagnostics as run_diagnostics_outputs  # noqa: E402
 
             diagnostics_logger = build_logger(f"run_diagnostics.{experiment_id}", paths.logs_dir / "run_diagnostics.log")
@@ -207,7 +212,7 @@ def run_stage2(
                 logger=diagnostics_logger,
             )
             step_summaries["diagnostics"] = [repo_relative(path) for path in diagnostics_written]
-            logger.info("[1/6] diagnostics 完成，用时 %.1fs，输出 %s 个文件", time.perf_counter() - step_start, len(diagnostics_written))
+            logger.info("[1/7] diagnostics 完成，用时 %.1fs，输出 %s 个文件", time.perf_counter() - step_start, len(diagnostics_written))
 
     stage1_copy_path = paths.data_dir / "patent_quality_output.csv"
     main_path = paths.data_dir / "main.parquet"
@@ -215,13 +220,13 @@ def run_stage2(
     experiment_panel_metadata = _load_json_if_exists(paths.metadata_dir / "build_experiment_patent_panel.json") if resume_existing else None
     experiment_panel_paths = [stage1_copy_path, main_path, experiment_patent_panel_path]
     if resume_existing and experiment_panel_metadata is not None and _all_exist(experiment_panel_paths):
-        logger.info("[2/6] 复用已有 experiment_patent_panel，跳过构造")
+        logger.info("[2/7] 复用已有 experiment_patent_panel，跳过构造")
         step_summaries["build_experiment_patent_panel"] = {
             "main_path": repo_relative(main_path),
             "experiment_patent_panel_path": repo_relative(experiment_patent_panel_path),
         }
     else:
-        logger.info("[2/6] 构造 experiment_patent_panel")
+        logger.info("[2/7] 构造 experiment_patent_panel")
         step_start = time.perf_counter()
         experiment_panel_result = build_experiment_patent_panel(
             experiment_id=experiment_id,
@@ -235,17 +240,39 @@ def run_stage2(
             key: repo_relative(value) if isinstance(value, Path) else value
             for key, value in experiment_panel_result.items()
         }
-        logger.info("[2/6] build_experiment_patent_panel 完成，用时 %.1fs", time.perf_counter() - step_start)
+        logger.info("[2/7] build_experiment_patent_panel 完成，用时 %.1fs", time.perf_counter() - step_start)
+
+    top_patent_summary = _load_resume_summary_from_metadata(
+        paths.metadata_dir / "export_top_patents_by_year.json",
+        required_keys=("output_paths",),
+    ) if resume_existing else None
+    if top_patent_summary is not None:
+        logger.info("[3/7] 复用已有年度 top 专利明细，跳过计算")
+        step_summaries["export_top_patents_by_year"] = top_patent_summary
+    else:
+        logger.info("[3/7] 输出年度 top 专利明细")
+        step_start = time.perf_counter()
+        top_patent_summary = export_top_patents_by_year(
+            experiment_id=experiment_id,
+            output_root=output_root,
+            experiment_patent_panel_path=experiment_patent_panel_path,
+            ucc_exploded_path=ucc_exploded_path,
+            raw_patent_dir=top_patents_raw_dir,
+            shared_root=shared_root,
+            top_n=top_patents_per_year,
+        )
+        step_summaries["export_top_patents_by_year"] = top_patent_summary
+        logger.info("[3/7] export_top_patents_by_year 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     basic_summary = _load_resume_summary_from_metadata(
         paths.metadata_dir / "analyze_quality_basic.json",
         required_keys=("figure_paths", "table_paths"),
     ) if resume_existing else None
     if basic_summary is not None:
-        logger.info("[3/6] 复用已有基础图表与描述统计，跳过计算")
+        logger.info("[4/7] 复用已有基础图表与描述统计，跳过计算")
         step_summaries["analyze_quality_basic"] = basic_summary
     else:
-        logger.info("[3/6] 输出基础图表与描述统计")
+        logger.info("[4/7] 输出基础图表与描述统计")
         step_start = time.perf_counter()
         basic_summary = analyze_quality_basic(
             experiment_id=experiment_id,
@@ -257,17 +284,17 @@ def run_stage2(
             quality_desc_threshold=quality_desc_threshold,
         )
         step_summaries["analyze_quality_basic"] = basic_summary
-        logger.info("[3/6] analyze_quality_basic 完成，用时 %.1fs", time.perf_counter() - step_start)
+        logger.info("[4/7] analyze_quality_basic 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     special_summary = _load_resume_summary_from_metadata(
         paths.metadata_dir / "analyze_special_firms.json",
         required_keys=("data_outputs", "figure_outputs", "table_outputs"),
     ) if resume_existing else None
     if special_summary is not None:
-        logger.info("[4/6] 复用已有特殊企业分析产物，跳过计算")
+        logger.info("[5/7] 复用已有特殊企业分析产物，跳过计算")
         step_summaries["analyze_special_firms"] = special_summary
     else:
-        logger.info("[4/6] 输出特殊企业对比分析")
+        logger.info("[5/7] 输出特殊企业对比分析")
         step_start = time.perf_counter()
         special_summary = analyze_special_firms(
             experiment_id=experiment_id,
@@ -284,14 +311,14 @@ def run_stage2(
             event_window=event_window,
         )
         step_summaries["analyze_special_firms"] = special_summary
-        logger.info("[4/6] analyze_special_firms 完成，用时 %.1fs", time.perf_counter() - step_start)
+        logger.info("[5/7] analyze_special_firms 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     innovation_path = paths.data_dir / "firm_year_innovation.parquet"
     if resume_existing and (paths.metadata_dir / "build_firm_year_innovation.json").exists() and innovation_path.exists():
-        logger.info("[5/6] 复用已有 firm_year_innovation，跳过构造")
+        logger.info("[6/7] 复用已有 firm_year_innovation，跳过构造")
         step_summaries["build_firm_year_innovation"] = repo_relative(innovation_path)
     else:
-        logger.info("[5/6] 构造 firm_year_innovation")
+        logger.info("[6/7] 构造 firm_year_innovation")
         step_start = time.perf_counter()
         innovation_path = build_firm_year_innovation(
             experiment_id=experiment_id,
@@ -303,17 +330,17 @@ def run_stage2(
             quality_cap=innovation_quality_cap,
         )
         step_summaries["build_firm_year_innovation"] = repo_relative(innovation_path)
-        logger.info("[5/6] build_firm_year_innovation 完成，用时 %.1fs", time.perf_counter() - step_start)
+        logger.info("[6/7] build_firm_year_innovation 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     regression_summary = _load_resume_summary_from_metadata(
         paths.metadata_dir / "run_regressions.json",
         required_keys=("regression_panel_path", "table_outputs", "figure_outputs"),
     ) if resume_existing else None
     if regression_summary is not None:
-        logger.info("[6/6] 复用已有回归结果，跳过计算")
+        logger.info("[7/7] 复用已有回归结果，跳过计算")
         step_summaries["run_regressions"] = regression_summary
     else:
-        logger.info("[6/6] 运行固定效应回归")
+        logger.info("[7/7] 运行固定效应回归")
         step_start = time.perf_counter()
         regression_summary = run_regressions(
             experiment_id=experiment_id,
@@ -325,7 +352,7 @@ def run_stage2(
             year_max=regression_year_max,
         )
         step_summaries["run_regressions"] = regression_summary
-        logger.info("[6/6] run_regressions 完成，用时 %.1fs", time.perf_counter() - step_start)
+        logger.info("[7/7] run_regressions 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     summary = {
         "experiment_id": experiment_id,
@@ -347,6 +374,8 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument("--skip-diagnostics", action="store_true", help="跳过 diagnostics 步骤")
+    parser.add_argument("--top-patents-per-year", type=int, default=100, help="每年导出的 top 专利数量")
+    parser.add_argument("--top-patents-raw-dir", default="data/raw/中国专利分年份保存数据1985-2025", help="年度 top 专利回查使用的原始专利 CSV 目录")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
     parser.add_argument("--innovation-quality-cap", type=float, default=1000.0, help="firm-year 创新指数 Quality_q 上限")
     parser.add_argument("--analysis-quality-threshold", type=float, default=1.0, help="企业对比中的高质量阈值")
@@ -372,6 +401,8 @@ def main() -> None:
         shared_root=args.shared_root,
         output_root=args.output_root,
         skip_diagnostics=args.skip_diagnostics,
+        top_patents_per_year=args.top_patents_per_year,
+        top_patents_raw_dir=args.top_patents_raw_dir,
         chunksize=args.chunksize,
         innovation_top_k=args.innovation_top_k,
         innovation_quality_cap=args.innovation_quality_cap,

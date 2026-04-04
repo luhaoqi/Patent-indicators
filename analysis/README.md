@@ -45,14 +45,15 @@
 
 ## 2. stage2 当前总流程
 
-[analysis/run_stage2_pipeline.py](./run_stage2_pipeline.py) 现在按 6 步执行：
+[analysis/run_stage2_pipeline.py](./run_stage2_pipeline.py) 现在按 7 步执行：
 
 1. `diagnostics`
 2. `build_experiment_patent_panel`
-3. `analyze_quality_basic`
-4. `analyze_special_firms`
-5. `build_firm_year_innovation`
-6. `run_regressions`
+3. `export_top_patents_by_year`
+4. `analyze_quality_basic`
+5. `analyze_special_firms`
+6. `build_firm_year_innovation`
+7. `run_regressions`
 
 这是**严格 shared-root 模式**：
 
@@ -98,6 +99,16 @@
 - `build_financial_annual_panel()`
 - `verify_shared_prep()`
 
+### `build_raw_patent_authorized_parts.py`
+
+当前提供：
+
+- `build_raw_patent_authorized_parts()`
+  将 `data/raw/中国专利分年份保存数据1985-2025/*.csv` 按原文件拆分转换为 parquet
+  - 保留原始全部列
+  - 仅保留 `专利类型 == 发明授权`
+  - 输出到 `outputs/shared/raw_patent_authorized_parts/*.parquet`
+
 ---
 
 ## 4. per-experiment stage2 子脚本
@@ -109,6 +120,21 @@
 
 输出：
 - 专利层基础图表和描述统计
+
+### `export_top_patents_by_year.py`
+
+输入：
+- `stage2/data/experiment_patent_panel.parquet`
+- `outputs/shared/ucc_mapping/ucc_exploded.parquet`
+- 原始专利目录
+
+输出：
+- `stage2/tables/top_patents_by_year/*.csv`
+- 按 `申请年份` 导出 `Quality_q` 排名前 `top_n` 的专利明细
+- 默认先对 `experiment_patent_panel.parquet` 做流式 top_n 筛选，再补公司名与原始明细
+- 如果 `outputs/shared/raw_patent_authorized_parts/*.parquet` 已存在，优先用这套 parquet parts 回查摘要和日期，不再优先扫 CSV
+- 原始明细回查仅用于补充摘要、申请日、公告日等字段；如果只需要排名结果，可用 `--skip-raw-lookup`
+- UCC 公司名映射仅用于补 `公司名称/证券ID`；如果只接受申请人回退，可用 `--skip-company-lookup`
 
 ### `analyze_special_firms.py`
 

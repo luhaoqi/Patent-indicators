@@ -115,6 +115,7 @@ def build_experiment_paths(experiment_id: str, output_root: PathLike = DEFAULT_O
 class SharedPaths:
     root: Path
     patent_master_dir: Path
+    raw_patent_authorized_parts_dir: Path
     special_firm_labels_dir: Path
     ucc_mapping_dir: Path
     financial_panel_dir: Path
@@ -125,6 +126,7 @@ class SharedPaths:
         for directory in (
             self.root,
             self.patent_master_dir,
+            self.raw_patent_authorized_parts_dir,
             self.special_firm_labels_dir,
             self.ucc_mapping_dir,
             self.financial_panel_dir,
@@ -137,6 +139,7 @@ class SharedPaths:
         return {
             "root": repo_relative(self.root),
             "patent_master_dir": repo_relative(self.patent_master_dir),
+            "raw_patent_authorized_parts_dir": repo_relative(self.raw_patent_authorized_parts_dir),
             "special_firm_labels_dir": repo_relative(self.special_firm_labels_dir),
             "ucc_mapping_dir": repo_relative(self.ucc_mapping_dir),
             "financial_panel_dir": repo_relative(self.financial_panel_dir),
@@ -151,6 +154,7 @@ def build_shared_paths(shared_root: PathLike = DEFAULT_SHARED_ROOT) -> SharedPat
     return SharedPaths(
         root=root,
         patent_master_dir=root / "patent_master",
+        raw_patent_authorized_parts_dir=root / "raw_patent_authorized_parts",
         special_firm_labels_dir=root / "special_firm_labels",
         ucc_mapping_dir=root / "ucc_mapping",
         financial_panel_dir=root / "financial_panel",
