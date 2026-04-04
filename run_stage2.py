@@ -28,7 +28,6 @@ TOPK_VALUES = (10, 30, 50)
 EXCLUDE_YEARS = (1985, 1986)
 SKIP_DIAGNOSTICS = False
 TOP_PATENTS_PER_YEAR = 100
-TOP_PATENTS_RAW_DIR = "data/raw/中国专利分年份保存数据1985-2025"
 
 
 def main():
@@ -52,7 +51,6 @@ def main():
         ),
         export_top_patents_by_year=TopPatentsByYearConfig(
             top_n=TOP_PATENTS_PER_YEAR,
-            raw_patent_dir=TOP_PATENTS_RAW_DIR,
         ),
         analyze_quality_basic=QualityBasicConfig(
             exclude_years=EXCLUDE_YEARS,
@@ -96,7 +94,6 @@ def main():
         max_year_gap=stage2_config.diagnostics.max_year_gap,
         exclude_years=stage2_config.analyze_quality_basic.exclude_years,
         top_patents_per_year=stage2_config.export_top_patents_by_year.top_n,
-        top_patents_raw_dir=stage2_config.export_top_patents_by_year.raw_patent_dir,
         quality_min=stage2_config.analyze_quality_basic.quality_min,
         bs_min=stage2_config.analyze_quality_basic.bs_min,
         analysis_quality_threshold=stage2_config.analyze_special_firms.quality_threshold,

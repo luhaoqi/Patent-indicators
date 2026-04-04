@@ -17,9 +17,6 @@ from common.analysis import INVALID_UCC_VALUES, normalize_string_series, to_nume
 from common.io import READ_ENCODINGS, build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
-
-DEFAULT_RAW_PATENT_DIR = "data/raw/中国专利分年份保存数据1985-2025"
-
 ID_COL = "申请号"
 YEAR_COL = "申请年份"
 PUBLIC_YEAR_COL = "公开公告年份"
@@ -432,7 +429,7 @@ def _preferred_lookup_order(lookup_dir: Path, year_hints: list[int]) -> list[Pat
     lookup_paths = sorted(
         path
         for path in lookup_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in {".csv", ".parquet"}
+        if path.is_file() and path.suffix.lower() == ".parquet"
     )
     if not year_hints:
         return lookup_paths
@@ -450,21 +447,18 @@ def _preferred_lookup_order(lookup_dir: Path, year_hints: list[int]) -> list[Pat
     return preferred
 
 
-def _has_authorized_parquet_parts(path: Path) -> bool:
-    return path.exists() and any(part.suffix.lower() == ".parquet" for part in path.iterdir() if part.is_file())
-
-
-def _resolve_raw_lookup_dir(*, raw_patent_dir: Path, shared_root: str) -> tuple[Path, str]:
+def _resolve_shared_raw_lookup_dir(*, shared_root: str) -> Path:
     shared_paths = build_shared_paths(shared_root)
     authorized_dir = shared_paths.raw_patent_authorized_parts_dir
-    default_raw_dir = resolve_repo_path(DEFAULT_RAW_PATENT_DIR)
-    if (
-        default_raw_dir is not None
-        and raw_patent_dir.resolve() == default_raw_dir.resolve()
-        and _has_authorized_parquet_parts(authorized_dir)
-    ):
-        return authorized_dir, "shared_authorized_parquet_parts"
-    return raw_patent_dir, "raw_patent_dir"
+    if not authorized_dir.exists():
+        raise FileNotFoundError(
+            f"缺少共享发明授权明细目录: {authorized_dir}。请先运行 run_shared_prep.py 或 build_raw_patent_authorized_parts.py"
+        )
+    if not any(part.suffix.lower() == ".parquet" for part in authorized_dir.iterdir() if part.is_file()):
+        raise FileNotFoundError(
+            f"共享发明授权明细目录下没有 parquet 文件: {authorized_dir}。请先运行 run_shared_prep.py 或 build_raw_patent_authorized_parts.py"
+        )
+    return authorized_dir
 
 
 def _select_raw_candidate(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -498,7 +492,7 @@ def _lookup_raw_details(
     logger,
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     if not raw_lookup_dir.exists():
-        raise FileNotFoundError(f"找不到原始专利目录: {raw_lookup_dir}")
+        raise FileNotFoundError(f"找不到共享发明授权明细目录: {raw_lookup_dir}")
 
     target_df = patents[[ID_COL, "raw_year_hint"]].drop_duplicates().copy()
     unresolved = set(target_df[ID_COL].tolist())
@@ -514,7 +508,7 @@ def _lookup_raw_details(
     ]
     lookup_paths = _preferred_lookup_order(raw_lookup_dir, year_hints)
     if not lookup_paths:
-        raise FileNotFoundError(f"原始专利目录下找不到可用的 csv/parquet 文件: {raw_lookup_dir}")
+        raise FileNotFoundError(f"共享发明授权明细目录下找不到可用的 parquet 文件: {raw_lookup_dir}")
     usecol_list = [
         ID_COL,
         PATENT_TYPE_COL,
@@ -525,8 +519,6 @@ def _lookup_raw_details(
         APPLICANT_COL,
         *RAW_PUBLIC_DATE_COLUMNS,
     ]
-    usecol_set = set(usecol_list)
-
     matched_rows: dict[str, dict[str, str]] = {}
     files_scanned = 0
 
@@ -537,45 +529,22 @@ def _lookup_raw_details(
         file_candidates: dict[str, list[dict[str, Any]]] = {}
         logger.info("回查原始专利文件: %s，待匹配申请号=%s", repo_relative(source_path), len(unresolved))
 
-        if source_path.suffix.lower() == ".parquet":
-            parquet = pq.ParquetFile(source_path)
-            if ID_COL not in parquet.schema_arrow.names:
-                logger.warning("原始 parquet 缺少申请号列，跳过: %s", repo_relative(source_path))
+        parquet = pq.ParquetFile(source_path)
+        if ID_COL not in parquet.schema_arrow.names:
+            logger.warning("原始 parquet 缺少申请号列，跳过: %s", repo_relative(source_path))
+            continue
+        columns_to_read = [column for column in usecol_list if column in parquet.schema_arrow.names]
+        for batch in parquet.iter_batches(batch_size=chunksize, columns=columns_to_read, use_threads=True):
+            chunk = batch.to_pandas()
+            chunk[ID_COL] = chunk[ID_COL].astype("string").fillna("").str.strip()
+            chunk = chunk[chunk[ID_COL].isin(unresolved)]
+            if chunk.empty:
                 continue
-            columns_to_read = [column for column in usecol_list if column in parquet.schema_arrow.names]
-            for batch in parquet.iter_batches(batch_size=chunksize, columns=columns_to_read, use_threads=True):
-                chunk = batch.to_pandas()
-                chunk[ID_COL] = chunk[ID_COL].astype("string").fillna("").str.strip()
-                chunk = chunk[chunk[ID_COL].isin(unresolved)]
-                if chunk.empty:
+            for _, row in chunk.iterrows():
+                pid = str(row.get(ID_COL, "")).strip()
+                if not pid:
                     continue
-                for _, row in chunk.iterrows():
-                    pid = str(row.get(ID_COL, "")).strip()
-                    if not pid:
-                        continue
-                    file_candidates.setdefault(pid, []).append(row.to_dict())
-        else:
-            try:
-                reader = _open_csv_reader(
-                    source_path,
-                    chunksize=chunksize,
-                    usecols=lambda name: name in usecol_set,
-                )
-            except RuntimeError:
-                logger.warning("无法读取原始专利文件，跳过: %s", repo_relative(source_path))
-                continue
-
-            for chunk in reader:
-                chunk = chunk.copy()
-                chunk[ID_COL] = chunk[ID_COL].astype("string").fillna("").str.strip()
-                chunk = chunk[chunk[ID_COL].isin(unresolved)]
-                if chunk.empty:
-                    continue
-                for _, row in chunk.iterrows():
-                    pid = str(row.get(ID_COL, "")).strip()
-                    if not pid:
-                        continue
-                    file_candidates.setdefault(pid, []).append(row.to_dict())
+                file_candidates.setdefault(pid, []).append(row.to_dict())
 
         if not file_candidates:
             continue
@@ -605,7 +574,6 @@ def export_top_patents_by_year(
     output_root: str = "outputs/experiments",
     experiment_patent_panel_path: Optional[Path] = None,
     ucc_exploded_path: Optional[Path] = None,
-    raw_patent_dir: str = DEFAULT_RAW_PATENT_DIR,
     shared_root: str = "outputs/shared",
     top_n: int = 100,
     raw_lookup_chunksize: int = 50000,
@@ -625,20 +593,12 @@ def export_top_patents_by_year(
         if not patent_path.exists():
             raise FileNotFoundError(f"找不到 experiment_patent_panel: {patent_path}")
 
-        effective_raw_patent_dir = resolve_repo_path(raw_patent_dir)
-        assert effective_raw_patent_dir is not None
-        effective_raw_lookup_dir, raw_lookup_source = _resolve_raw_lookup_dir(
-            raw_patent_dir=effective_raw_patent_dir,
-            shared_root=shared_root,
-        )
-
         if top_n <= 0:
             summary = {
                 "experiment_id": experiment_id,
                 "experiment_patent_panel_path": repo_relative(patent_path),
-                "raw_patent_dir": repo_relative(effective_raw_patent_dir),
-                "raw_lookup_dir": repo_relative(effective_raw_lookup_dir),
-                "raw_lookup_source": raw_lookup_source,
+                "raw_lookup_dir": None,
+                "raw_lookup_source": None,
                 "top_n": int(top_n),
                 "skipped": True,
                 "reason": "top_n <= 0",
@@ -646,6 +606,12 @@ def export_top_patents_by_year(
             }
             write_json(paths.metadata_dir / "export_top_patents_by_year.json", summary)
             return summary
+
+        effective_raw_lookup_dir: Optional[Path] = None
+        raw_lookup_source: Optional[str] = None
+        if not skip_raw_lookup:
+            effective_raw_lookup_dir = _resolve_shared_raw_lookup_dir(shared_root=shared_root)
+            raw_lookup_source = "shared_authorized_parquet_parts"
 
         effective_ucc_path = ucc_exploded_path
         if effective_ucc_path is None:
@@ -688,7 +654,7 @@ def export_top_patents_by_year(
             logger.info("公司名称补全阶段完成，用时 %.1fs", time.perf_counter() - step_started)
 
         if skip_raw_lookup:
-            logger.info("按参数跳过原始专利 CSV 回查，摘要和日期字段将保留为空")
+            logger.info("按参数跳过共享 parquet 明细回查，摘要和日期字段将保留为空")
             raw_details_df = top_df[[ID_COL]].drop_duplicates().copy()
             for column in RAW_DETAIL_OUTPUT_COLUMNS:
                 raw_details_df[column] = ""
@@ -699,8 +665,9 @@ def export_top_patents_by_year(
                 "skipped": True,
             }
         else:
+            assert effective_raw_lookup_dir is not None
             logger.info(
-                "开始回查原始专利明细，数据源=%s (%s)。该步骤用于补摘要和日期字段",
+                "开始回查共享发明授权专利明细，数据源=%s (%s)。该步骤用于补摘要和日期字段",
                 repo_relative(effective_raw_lookup_dir),
                 raw_lookup_source,
             )
@@ -749,8 +716,7 @@ def export_top_patents_by_year(
             "experiment_id": experiment_id,
             "experiment_patent_panel_path": repo_relative(patent_path),
             "ucc_mapping_path": repo_relative(effective_ucc_path) if effective_ucc_path is not None else None,
-            "raw_patent_dir": repo_relative(effective_raw_patent_dir),
-            "raw_lookup_dir": repo_relative(effective_raw_lookup_dir),
+            "raw_lookup_dir": repo_relative(effective_raw_lookup_dir) if effective_raw_lookup_dir is not None else None,
             "raw_lookup_source": raw_lookup_source,
             "top_n": int(top_n),
             "rows_exported": int(len(top_df)),
@@ -775,14 +741,13 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument("--experiment-patent-panel-path", help="experiment_patent_panel.parquet 路径")
     parser.add_argument("--ucc-exploded-path", help="共享 ucc_exploded.parquet 路径")
-    parser.add_argument("--raw-patent-dir", default=DEFAULT_RAW_PATENT_DIR, help="原始专利 CSV 目录")
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--top-n", type=int, default=100, help="每年导出的 top_n 专利数量")
-    parser.add_argument("--raw-lookup-chunksize", type=int, default=50000, help="回查原始专利 CSV 的分块行数")
+    parser.add_argument("--raw-lookup-chunksize", type=int, default=50000, help="回查共享 parquet 明细的分块行数")
     parser.add_argument("--panel-batch-size", type=int, default=200000, help="流式读取 experiment_patent_panel 的分块行数")
     parser.add_argument("--ucc-batch-size", type=int, default=200000, help="流式读取 UCC 映射的分块行数")
     parser.add_argument("--skip-company-lookup", action="store_true", help="跳过 UCC 公司名映射，仅保留申请人回退")
-    parser.add_argument("--skip-raw-lookup", action="store_true", help="跳过原始专利 CSV 回查，摘要和日期列留空")
+    parser.add_argument("--skip-raw-lookup", action="store_true", help="跳过共享 parquet 明细回查，摘要和日期列留空")
     return parser
 
 
@@ -793,7 +758,6 @@ def main() -> None:
         output_root=args.output_root,
         experiment_patent_panel_path=resolve_repo_path(args.experiment_patent_panel_path) if args.experiment_patent_panel_path else None,
         ucc_exploded_path=resolve_repo_path(args.ucc_exploded_path) if args.ucc_exploded_path else None,
-        raw_patent_dir=args.raw_patent_dir,
         shared_root=args.shared_root,
         top_n=args.top_n,
         raw_lookup_chunksize=args.raw_lookup_chunksize,

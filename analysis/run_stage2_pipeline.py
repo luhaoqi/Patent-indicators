@@ -107,7 +107,6 @@ def run_stage2(
     max_year_gap: int = 5,
     exclude_years: Sequence[int] = (1985, 1986),
     top_patents_per_year: int = 100,
-    top_patents_raw_dir: str = "data/raw/中国专利分年份保存数据1985-2025",
     quality_min: float = 1e-5,
     bs_min: float = 1e-6,
     analysis_quality_threshold: float = 1.0,
@@ -153,7 +152,6 @@ def run_stage2(
         max_year_gap=max_year_gap,
         exclude_years=exclude_years,
         top_patents_per_year=top_patents_per_year,
-        top_patents_raw_dir=top_patents_raw_dir,
         quality_min=quality_min,
         bs_min=bs_min,
         analysis_quality_threshold=analysis_quality_threshold,
@@ -257,7 +255,6 @@ def run_stage2(
             output_root=output_root,
             experiment_patent_panel_path=experiment_patent_panel_path,
             ucc_exploded_path=ucc_exploded_path,
-            raw_patent_dir=top_patents_raw_dir,
             shared_root=shared_root,
             top_n=top_patents_per_year,
         )
@@ -375,7 +372,6 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument("--skip-diagnostics", action="store_true", help="跳过 diagnostics 步骤")
     parser.add_argument("--top-patents-per-year", type=int, default=100, help="每年导出的 top 专利数量")
-    parser.add_argument("--top-patents-raw-dir", default="data/raw/中国专利分年份保存数据1985-2025", help="年度 top 专利回查使用的原始专利 CSV 目录")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
     parser.add_argument("--innovation-quality-cap", type=float, default=1000.0, help="firm-year 创新指数 Quality_q 上限")
     parser.add_argument("--analysis-quality-threshold", type=float, default=1.0, help="企业对比中的高质量阈值")
@@ -402,7 +398,6 @@ def main() -> None:
         output_root=args.output_root,
         skip_diagnostics=args.skip_diagnostics,
         top_patents_per_year=args.top_patents_per_year,
-        top_patents_raw_dir=args.top_patents_raw_dir,
         chunksize=args.chunksize,
         innovation_top_k=args.innovation_top_k,
         innovation_quality_cap=args.innovation_quality_cap,

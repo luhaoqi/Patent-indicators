@@ -9,6 +9,7 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 from build_main_enriched import build_patent_master  # noqa: E402
+from build_raw_patent_authorized_parts import build_raw_patent_authorized_parts  # noqa: E402
 from build_ucc_panel import build_ucc_mapping  # noqa: E402
 from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
@@ -66,6 +67,11 @@ def main() -> None:
         shared_root=args.shared_root,
         chunksize=args.patent_chunksize,
     )
+    raw_authorized_parts = build_raw_patent_authorized_parts(
+        raw_patent_dir=raw_patent_dir,
+        shared_root=args.shared_root,
+        chunksize=args.patent_chunksize,
+    )
     special_labels = build_special_firm_labels(
         special_list_path=special_list_path,
         shared_root=args.shared_root,
@@ -88,6 +94,8 @@ def main() -> None:
         "shared_root": repo_relative(shared_paths.root),
         "outputs": {
             "patent_master": repo_relative(patent_master["patent_master_path"]),
+            "raw_patent_authorized_parts_dir": repo_relative(raw_authorized_parts["output_dir"]),
+            "raw_patent_authorized_parts_metadata": repo_relative(raw_authorized_parts["metadata_path"]),
             "firm_year_special_labels": repo_relative(special_labels["firm_year_special_labels_path"]),
             "special_ucc_set": repo_relative(special_labels["special_ucc_set_path"]),
             "ucc_panel": repo_relative(ucc_mapping["ucc_panel_path"]),

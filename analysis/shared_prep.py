@@ -232,6 +232,20 @@ def verify_shared_prep(
                     )
         checks[name] = record
 
+    raw_authorized_dir = shared_paths.raw_patent_authorized_parts_dir
+    raw_authorized_parts = []
+    if raw_authorized_dir.exists():
+        raw_authorized_parts = sorted(
+            path for path in raw_authorized_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".parquet"
+        )
+    checks["raw_patent_authorized_parts"] = {
+        "path": repo_relative(raw_authorized_dir),
+        "exists": raw_authorized_dir.exists(),
+        "metadata_exists": (raw_authorized_dir / "metadata.json").exists(),
+        "parquet_parts": len(raw_authorized_parts),
+    }
+
     summary = {
         "shared_root": repo_relative(shared_paths.root),
         "checks": checks,

@@ -27,7 +27,6 @@ class ExperimentPatentPanelConfig:
 @dataclass(frozen=True)
 class TopPatentsByYearConfig:
     top_n: int = 100
-    raw_patent_dir: str = "data/raw/中国专利分年份保存数据1985-2025"
 
 
 @dataclass(frozen=True)
@@ -91,7 +90,6 @@ class Stage2Config:
         max_year_gap: int,
         exclude_years: Sequence[int],
         top_patents_per_year: int,
-        top_patents_raw_dir: str,
         quality_min: float,
         bs_min: float,
         analysis_quality_threshold: float,
@@ -122,7 +120,6 @@ class Stage2Config:
             build_experiment_patent_panel=ExperimentPatentPanelConfig(chunksize=int(chunksize)),
             export_top_patents_by_year=TopPatentsByYearConfig(
                 top_n=int(top_patents_per_year),
-                raw_patent_dir=str(top_patents_raw_dir),
             ),
             analyze_quality_basic=QualityBasicConfig(
                 exclude_years=grouped_exclude_years,

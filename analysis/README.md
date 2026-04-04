@@ -18,6 +18,7 @@
 - [analysis/run_shared_prep.py](./run_shared_prep.py)
   一次性生成：
   - `outputs/shared/patent_master/`
+  - `outputs/shared/raw_patent_authorized_parts/`
   - `outputs/shared/special_firm_labels/`
   - `outputs/shared/ucc_mapping/`
   - `outputs/shared/financial_panel/`
@@ -108,6 +109,7 @@
   - 保留原始全部列
   - 仅保留 `专利类型 == 发明授权`
   - 输出到 `outputs/shared/raw_patent_authorized_parts/*.parquet`
+  - `run_shared_prep.py` 会自动调用这一步
 
 ---
 
@@ -126,13 +128,13 @@
 输入：
 - `stage2/data/experiment_patent_panel.parquet`
 - `outputs/shared/ucc_mapping/ucc_exploded.parquet`
-- 原始专利目录
+- `outputs/shared/raw_patent_authorized_parts/*.parquet`
 
 输出：
 - `stage2/tables/top_patents_by_year/*.csv`
 - 按 `申请年份` 导出 `Quality_q` 排名前 `top_n` 的专利明细
 - 默认先对 `experiment_patent_panel.parquet` 做流式 top_n 筛选，再补公司名与原始明细
-- 如果 `outputs/shared/raw_patent_authorized_parts/*.parquet` 已存在，优先用这套 parquet parts 回查摘要和日期，不再优先扫 CSV
+- 原始明细回查现在只走 `outputs/shared/raw_patent_authorized_parts/*.parquet`
 - 原始明细回查仅用于补充摘要、申请日、公告日等字段；如果只需要排名结果，可用 `--skip-raw-lookup`
 - UCC 公司名映射仅用于补 `公司名称/证券ID`；如果只接受申请人回退，可用 `--skip-company-lookup`
 

@@ -338,12 +338,18 @@ class Stage2RefactorTests(unittest.TestCase):
                 ]
             ).to_csv(raw_dir / "中国专利数据库2022年.csv", index=False, encoding="utf-8-sig")
 
+            build_raw_patent_authorized_parts(
+                raw_patent_dir=raw_dir,
+                shared_root=str(shared_root),
+                chunksize=2,
+                overwrite=True,
+            )
+
             summary = export_top_patents_by_year(
                 experiment_id="exp_top",
                 output_root=str(output_root),
                 experiment_patent_panel_path=panel_path,
                 ucc_exploded_path=ucc_path,
-                raw_patent_dir=str(raw_dir),
                 shared_root=str(shared_root),
                 top_n=1,
             )
@@ -419,7 +425,6 @@ class Stage2RefactorTests(unittest.TestCase):
                 experiment_id="exp_fast",
                 output_root=str(output_root),
                 experiment_patent_panel_path=panel_path,
-                raw_patent_dir=str(root / "raw_missing"),
                 shared_root=str(shared_root),
                 top_n=1,
                 skip_company_lookup=True,
@@ -511,13 +516,12 @@ class Stage2RefactorTests(unittest.TestCase):
                 experiment_id="exp_parquet",
                 output_root=str(output_root),
                 experiment_patent_panel_path=panel_path,
-                raw_patent_dir=str(result["output_dir"]),
                 shared_root=str(shared_root),
                 top_n=1,
                 skip_company_lookup=True,
             )
 
-            self.assertEqual(summary["raw_lookup_source"], "raw_patent_dir")
+            self.assertEqual(summary["raw_lookup_source"], "shared_authorized_parquet_parts")
             year_2020 = pd.read_csv(output_root / "exp_parquet" / "stage2" / "tables" / "top_patents_by_year" / "top_patents_year=2020_top1.csv")
             self.assertEqual(year_2020.loc[0, "专利名称"], "原始标题P1")
             self.assertEqual(year_2020.loc[0, "摘要文本"], "原始摘要P1")
