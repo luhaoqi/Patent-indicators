@@ -84,6 +84,21 @@ class ExperimentPaths:
     def stage2_log_path(self) -> Path:
         return self.logs_dir / "stage2.log"
 
+    def table_subdir(self, category: str) -> Path:
+        path = self.tables_dir / category
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def figure_subdir(self, category: str) -> Path:
+        path = self.figures_dir / category
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def data_subdir(self, category: str) -> Path:
+        path = self.data_dir / category
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def to_metadata(self) -> Dict[str, str]:
         return {
             "experiment_id": self.experiment_id,

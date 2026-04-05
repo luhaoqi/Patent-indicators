@@ -101,6 +101,7 @@ def run_stage2(
     stage1_dir: Path,
     shared_root: str = "outputs/shared",
     output_root: str = "outputs/experiments",
+    unit_filter_terms_path: Optional[Path] = None,
     skip_diagnostics: bool = False,
     topk_values: Sequence[int] = (10, 30, 50),
     yearly_top_vocab_k: int = 50,
@@ -305,6 +306,7 @@ def run_stage2(
             firm_year_special_labels_path=firm_year_special_labels_path,
             special_ucc_set_path=special_ucc_set_path,
             shared_root=shared_root,
+            unit_filter_terms_path=unit_filter_terms_path,
             exclude_years=exclude_years,
             quality_min=quality_min,
             bs_min=bs_min,
@@ -379,6 +381,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--stage1-dir", required=True, help="stage1 结果目录")
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
+    parser.add_argument("--unit-filter-terms-path", default="高校_研究所过滤词.txt", help="高校/研究所等单位过滤词文件")
     parser.add_argument("--skip-diagnostics", action="store_true", help="跳过 diagnostics 步骤")
     parser.add_argument("--top-patents-per-year", type=int, default=100, help="每年导出的 top 专利数量")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
@@ -406,6 +409,7 @@ def main() -> None:
         stage1_dir=stage1_dir,
         shared_root=args.shared_root,
         output_root=args.output_root,
+        unit_filter_terms_path=resolve_repo_path(args.unit_filter_terms_path),
         skip_diagnostics=args.skip_diagnostics,
         top_patents_per_year=args.top_patents_per_year,
         chunksize=args.chunksize,

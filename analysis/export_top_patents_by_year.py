@@ -75,6 +75,8 @@ OUTPUT_COLUMNS = [
     "被引证次数",
 ]
 
+OUTPUT_CATEGORY = "年度高分专利"
+
 
 def _join_unique(values: Any) -> str:
     raw_values = values.tolist() if isinstance(values, pd.Series) else list(values)
@@ -591,6 +593,7 @@ def export_top_patents_by_year(
 ) -> dict[str, object]:
     paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
+    table_dir = paths.table_subdir(OUTPUT_CATEGORY)
     logger = build_logger(
         f"export_top_patents_by_year.{experiment_id}",
         paths.logs_dir / "export_top_patents_by_year.log",
@@ -707,7 +710,7 @@ def export_top_patents_by_year(
         top_df.loc[(~mapped_mask) & (~fallback_mask), "公司名称"] = ""
         top_df.loc[(~mapped_mask) & (~fallback_mask), "公司名称来源"] = "缺失"
 
-        output_dir = paths.tables_dir / "top_patents_by_year"
+        output_dir = table_dir / "top_patents_by_year"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         output_paths: list[str] = []

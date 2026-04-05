@@ -19,6 +19,9 @@ from common.plotting import save_figure, set_chinese_font  # noqa: E402
 from common.tables import export_table  # noqa: E402
 
 
+OUTPUT_CATEGORY = "回归分析"
+
+
 def run_regressions(
     *,
     experiment_id: str,
@@ -34,6 +37,8 @@ def run_regressions(
 
     paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
+    table_dir = paths.table_subdir(OUTPUT_CATEGORY)
+    figure_dir = paths.figure_subdir(OUTPUT_CATEGORY)
     logger = build_logger(f"run_regressions.{experiment_id}", paths.logs_dir / "run_regressions.log")
     set_chinese_font(logger=logger)
 
@@ -146,13 +151,13 @@ def run_regressions(
                 "formula": spec["formula"],
             }
         )
-        text_path = paths.tables_dir / f"reg_{_slugify(spec['name'])}.txt"
+        text_path = table_dir / f"reg_{_slugify(spec['name'])}.txt"
         text_path.write_text(str(result.summary), encoding="utf-8")
         text_outputs.append(repo_relative(text_path))
 
     summary_table = pd.DataFrame(summary_rows)
-    summary_csv = paths.tables_dir / "tbl_regression_summary.csv"
-    summary_tex = paths.tables_dir / "tbl_regression_summary.tex"
+    summary_csv = table_dir / "tbl_regression_summary.csv"
+    summary_tex = table_dir / "tbl_regression_summary.tex"
     export_table(
         summary_table,
         csv_path=summary_csv,
@@ -177,7 +182,7 @@ def run_regressions(
         plt.ylabel("Coefficient")
         plt.title("Innovation coefficient by regression specification")
         plt.tight_layout()
-        coefficient_fig = paths.figures_dir / "fig_regression_coefficients.png"
+        coefficient_fig = figure_dir / "fig_regression_coefficients.png"
         save_figure(coefficient_fig)
 
     summary = {

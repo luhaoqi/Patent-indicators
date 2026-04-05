@@ -21,6 +21,9 @@ from common.plotting import save_figure, set_chinese_font  # noqa: E402
 from common.tables import export_table  # noqa: E402
 
 
+OUTPUT_CATEGORY = "基础分析"
+
+
 def analyze_quality_basic(
     *,
     experiment_id: str,
@@ -35,6 +38,8 @@ def analyze_quality_basic(
 ) -> dict[str, object]:
     paths = build_experiment_paths(experiment_id, output_root=output_root, exact_date=exact_date)
     paths.ensure_dirs()
+    table_dir = paths.table_subdir(OUTPUT_CATEGORY)
+    figure_dir = paths.figure_subdir(OUTPUT_CATEGORY)
     logger = build_logger(f"analyze_quality_basic.{experiment_id}", paths.logs_dir / "analyze_quality_basic.log")
     set_chinese_font(logger=logger)
 
@@ -71,8 +76,8 @@ def analyze_quality_basic(
             "Citations": cites,
         }
     )
-    desc_csv = paths.tables_dir / "tbl_desc_patent_quality.csv"
-    desc_tex = paths.tables_dir / "tbl_desc_patent_quality.tex"
+    desc_csv = table_dir / "tbl_desc_patent_quality.csv"
+    desc_tex = table_dir / "tbl_desc_patent_quality.tex"
     export_table(
         desc_table,
         csv_path=desc_csv,
@@ -97,7 +102,7 @@ def analyze_quality_basic(
     plt.ylabel("log(1 + 被引证次数)")
     plt.title("Quality_q vs Citations")
     plt.grid(True, alpha=0.3)
-    scatter_path = paths.figures_dir / "fig_quality_vs_citations_logq_logcite.png"
+    scatter_path = figure_dir / "fig_quality_vs_citations_logq_logcite.png"
     save_figure(scatter_path)
     logger.info("散点图已输出: %s", repo_relative(scatter_path))
 
@@ -121,7 +126,7 @@ def analyze_quality_basic(
             va="top",
             bbox={"alpha": 0.2},
         )
-        ols_fig_path = paths.figures_dir / "fig_quality_vs_citations_fit_logq_logcite.png"
+        ols_fig_path = figure_dir / "fig_quality_vs_citations_fit_logq_logcite.png"
         save_figure(ols_fig_path)
         logger.info("回归拟合图已输出: %s", repo_relative(ols_fig_path))
         ols_table = pd.DataFrame(
@@ -144,8 +149,8 @@ def analyze_quality_basic(
         )
     export_table(
         ols_table,
-        csv_path=paths.tables_dir / "tbl_quality_citation_ols.csv",
-        tex_path=paths.tables_dir / "tbl_quality_citation_ols.tex",
+        csv_path=table_dir / "tbl_quality_citation_ols.csv",
+        tex_path=table_dir / "tbl_quality_citation_ols.tex",
         caption="Patent Quality and Citations Regression",
         label="tab:quality_citation_ols",
         digits=4,
@@ -161,21 +166,22 @@ def analyze_quality_basic(
     plt.yscale("log")
     plt.title("Distribution of Quality_q")
     plt.grid(True, alpha=0.3)
-    dist_path = paths.figures_dir / "fig_quality_distribution_log1p_logy.png"
+    dist_path = figure_dir / "fig_quality_distribution_log1p_logy.png"
     save_figure(dist_path)
     logger.info("质量分布图已输出: %s", repo_relative(dist_path))
 
     logger.info("开始生成年度均值图表")
     yearly_mean = filtered.groupby(year_col)["Quality_q"].mean().sort_index().reset_index()
     yearly_mean.columns = [year_col, "mean_quality"]
-    yearly_mean.to_csv(paths.tables_dir / "tbl_yearly_mean_quality.csv", index=False, encoding="utf-8-sig")
+    yearly_mean_csv = table_dir / "tbl_yearly_mean_quality.csv"
+    yearly_mean.to_csv(yearly_mean_csv, index=False, encoding="utf-8-sig")
     plt.figure(figsize=(9, 4.8))
     plt.plot(yearly_mean[year_col], yearly_mean["mean_quality"], marker="o")
     plt.xlabel(year_col)
     plt.ylabel("Mean(Quality_q)")
     plt.title("Yearly Mean of Quality_q")
     plt.grid(True, alpha=0.3)
-    yearly_mean_fig = paths.figures_dir / "fig_yearly_mean_quality.png"
+    yearly_mean_fig = figure_dir / "fig_yearly_mean_quality.png"
     save_figure(yearly_mean_fig)
     logger.info("年度均值图已输出: %s", repo_relative(yearly_mean_fig))
 
@@ -195,9 +201,10 @@ def analyze_quality_basic(
     plt.title("Yearly counts by Quality_q thresholds")
     plt.grid(True, alpha=0.3)
     plt.legend(ncol=2)
-    yearly_count_fig = paths.figures_dir / "fig_yearly_high_q_counts.png"
+    yearly_count_fig = figure_dir / "fig_yearly_high_q_counts.png"
     save_figure(yearly_count_fig)
-    pd.DataFrame(yearly_rows).to_csv(paths.tables_dir / "tbl_yearly_high_q_counts.csv", index=False, encoding="utf-8-sig")
+    yearly_count_csv = table_dir / "tbl_yearly_high_q_counts.csv"
+    pd.DataFrame(yearly_rows).to_csv(yearly_count_csv, index=False, encoding="utf-8-sig")
     logger.info("年度高质量计数图表已输出: %s", repo_relative(yearly_count_fig))
 
     summary = {
@@ -213,10 +220,10 @@ def analyze_quality_basic(
         "table_paths": [
             repo_relative(desc_csv),
             repo_relative(desc_tex),
-            repo_relative(paths.tables_dir / "tbl_quality_citation_ols.csv"),
-            repo_relative(paths.tables_dir / "tbl_quality_citation_ols.tex"),
-            repo_relative(paths.tables_dir / "tbl_yearly_mean_quality.csv"),
-            repo_relative(paths.tables_dir / "tbl_yearly_high_q_counts.csv"),
+            repo_relative(table_dir / "tbl_quality_citation_ols.csv"),
+            repo_relative(table_dir / "tbl_quality_citation_ols.tex"),
+            repo_relative(yearly_mean_csv),
+            repo_relative(yearly_count_csv),
         ],
         "rows_used": int(len(filtered)),
         "year_col": year_col,
