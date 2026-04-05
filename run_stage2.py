@@ -22,7 +22,7 @@ from analysis.common.config import (  # noqa: E402
 from analysis.run_stage2_pipeline import run_stage2  # noqa: E402
 
 
-EXPERIMENT_ID = "标题_摘要_window3"
+EXPERIMENT_ID = "标题_摘要_ExactTime_window_1"
 OUTPUT_ROOT = "outputs/experiments"
 TOPK_VALUES = (10, 30, 50)
 EXCLUDE_YEARS = (1985, 1986)

@@ -5,7 +5,7 @@ from patent_quality.project_paths import build_experiment_layout, get_project_ro
 
 
 def main():
-    experiment_id = "标题_摘要_ExactTime_window_1"
+    experiment_id = "标题_摘要_ExactTime_window_3"
     exact_date = True
     layout = build_experiment_layout(experiment_id)
     # --- 正式运行配置 ---
@@ -21,7 +21,7 @@ def main():
         min_term_count=50,  # 最小词频：小于50次的词被丢弃 (大规模数据建议20-50)
         max_doc_freq_ratio=0.5,  # 最大文档频率：超过50%文档出现的词被丢弃(太通用的词)
         # [算法参数]
-        window_size=1,  # 滑动窗口大小：3年 (Kelly标准)
+        window_size=3,  # 滑动窗口大小：3年 (Kelly标准)
         similarity_threshold=0.05,  # 相似度阈值：0.05
         # [工程参数]
         artifacts_dir=os.fspath(layout.active_stage1_dir(exact_date=exact_date)),  # 结果输出目录
