@@ -64,6 +64,7 @@ def main() -> None:
             max_year_gap=int(experiment.get("max_year_gap", shared.get("max_year_gap", 5))),
             top_patents_per_year=int(experiment.get("top_patents_per_year", shared.get("top_patents_per_year", default_top_patents))),
             analysis_quality_threshold=float(experiment.get("analysis_quality_threshold", quality_threshold)),
+            special_regression_topk_share=float(experiment.get("special_regression_topk_share", shared.get("special_regression_topk_share", 0.10))),
             quality_desc_threshold=float(experiment.get("quality_desc_threshold", shared.get("quality_desc_threshold", 5.0))),
             quality_min=float(experiment.get("quality_min", shared.get("quality_min", 1e-5))),
             bs_min=float(experiment.get("bs_min", shared.get("bs_min", 1e-6))),

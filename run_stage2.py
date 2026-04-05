@@ -22,7 +22,7 @@ from analysis.common.config import (  # noqa: E402
 from analysis.run_stage2_pipeline import run_stage2  # noqa: E402
 
 
-EXPERIMENT_ID = "标题_摘要_ExactTime_window_1"
+EXPERIMENT_ID = "标题_摘要_ExactTime_window_3"
 OUTPUT_ROOT = "outputs/experiments"
 TOPK_VALUES = (10, 30, 50)
 EXCLUDE_YEARS = (1985, 1986)
@@ -63,6 +63,7 @@ def main():
             quality_min=1e-5,
             bs_min=1e-6,
             quality_threshold=1.0,
+            regression_topk_share=0.10,
             policy_start_year=2008,
             event_window=5,
         ),
@@ -97,6 +98,7 @@ def main():
         quality_min=stage2_config.analyze_quality_basic.quality_min,
         bs_min=stage2_config.analyze_quality_basic.bs_min,
         analysis_quality_threshold=stage2_config.analyze_special_firms.quality_threshold,
+        special_regression_topk_share=stage2_config.analyze_special_firms.regression_topk_share,
         quality_desc_threshold=stage2_config.analyze_quality_basic.quality_desc_threshold,
         policy_start_year=stage2_config.analyze_special_firms.policy_start_year,
         event_window=stage2_config.analyze_special_firms.event_window,

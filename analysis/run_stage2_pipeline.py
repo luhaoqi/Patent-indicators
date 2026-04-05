@@ -114,6 +114,7 @@ def run_stage2(
     quality_desc_threshold: float = 5.0,
     policy_start_year: int = 2008,
     event_window: int = 5,
+    special_regression_topk_share: float = 0.10,
     innovation_top_k: int = 10,
     innovation_quality_cap: float = 1000.0,
     regression_year_min: int = 2000,
@@ -160,6 +161,7 @@ def run_stage2(
         quality_desc_threshold=quality_desc_threshold,
         policy_start_year=policy_start_year,
         event_window=event_window,
+        regression_topk_share=special_regression_topk_share,
         innovation_top_k=innovation_top_k,
         innovation_quality_cap=innovation_quality_cap,
         regression_year_min=regression_year_min,
@@ -293,6 +295,19 @@ def run_stage2(
         paths.metadata_dir / "analyze_special_firms.json",
         required_keys=("data_outputs", "figure_outputs", "table_outputs"),
     ) if resume_existing else None
+    required_special_regression_outputs = [
+        paths.tables_dir / "特殊企业对比" / "回归分析" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业_过滤部分单位" / "回归分析" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业对比" / "回归分析" / "静态横截面" / "cluster_firm" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业对比" / "回归分析" / "ABC分解" / "cluster_firm" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业对比" / "回归分析" / "动态企业内" / "cluster_firm" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业_过滤部分单位" / "回归分析" / "静态横截面" / "cluster_firm" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业_过滤部分单位" / "回归分析" / "ABC分解" / "cluster_firm" / "tbl_regression_summary.csv",
+        paths.tables_dir / "特殊企业_过滤部分单位" / "回归分析" / "动态企业内" / "cluster_firm" / "tbl_regression_summary.csv",
+    ]
+    if special_summary is not None and not _all_exist(required_special_regression_outputs):
+        logger.info("[5/7] 现有特殊企业 metadata 缺少新增回归产物，改为重跑 analyze_special_firms")
+        special_summary = None
     if special_summary is not None:
         logger.info("[5/7] 复用已有特殊企业分析产物，跳过计算")
         step_summaries["analyze_special_firms"] = special_summary
@@ -311,6 +326,7 @@ def run_stage2(
             quality_min=quality_min,
             bs_min=bs_min,
             quality_threshold=analysis_quality_threshold,
+            regression_topk_share=special_regression_topk_share,
             policy_start_year=policy_start_year,
             event_window=event_window,
             exact_date=exact_date,
@@ -387,6 +403,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
     parser.add_argument("--innovation-quality-cap", type=float, default=1000.0, help="firm-year 创新指数 Quality_q 上限")
     parser.add_argument("--analysis-quality-threshold", type=float, default=1.0, help="企业对比中的高质量阈值")
+    parser.add_argument("--special-regression-topk-share", type=float, default=0.10, help="特殊企业回归中年度前 k%% 指标阈值")
     parser.add_argument("--quality-desc-threshold", type=float, default=5.0, help="基础描述统计中的高质量阈值")
     parser.add_argument("--quality-min", type=float, default=1e-5, help="Quality_q 最小阈值")
     parser.add_argument("--bs-min", type=float, default=1e-6, help="BS 最小阈值")
@@ -416,6 +433,7 @@ def main() -> None:
         innovation_top_k=args.innovation_top_k,
         innovation_quality_cap=args.innovation_quality_cap,
         analysis_quality_threshold=args.analysis_quality_threshold,
+        special_regression_topk_share=args.special_regression_topk_share,
         quality_desc_threshold=args.quality_desc_threshold,
         quality_min=args.quality_min,
         bs_min=args.bs_min,

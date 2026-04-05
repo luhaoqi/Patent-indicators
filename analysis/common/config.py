@@ -44,6 +44,7 @@ class SpecialFirmsConfig:
     quality_min: float = 1e-5
     bs_min: float = 1e-6
     quality_threshold: float = 1.0
+    regression_topk_share: float = 0.10
     policy_start_year: int = 2008
     event_window: int = 5
 
@@ -97,6 +98,7 @@ class Stage2Config:
         quality_desc_threshold: float,
         policy_start_year: int,
         event_window: int,
+        regression_topk_share: float,
         innovation_top_k: int,
         innovation_quality_cap: float,
         regression_year_min: int,
@@ -135,6 +137,7 @@ class Stage2Config:
                 quality_min=float(quality_min),
                 bs_min=float(bs_min),
                 quality_threshold=float(analysis_quality_threshold),
+                regression_topk_share=float(regression_topk_share),
                 policy_start_year=int(policy_start_year),
                 event_window=int(event_window),
             ),

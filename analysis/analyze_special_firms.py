@@ -36,6 +36,7 @@ from common.io import build_logger, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 from common.plotting import save_figure, set_chinese_font  # noqa: E402
 from common.tables import export_table  # noqa: E402
+from special_firm_regressions import run_special_firm_regressions  # noqa: E402
 
 
 ABC_GROUPS = ["A_treated_year", "B_same_firm_other_year", "C_never_treated"]
@@ -64,6 +65,7 @@ def analyze_special_firms(
     quality_min: float = 1e-5,
     bs_min: float = 1e-6,
     quality_threshold: float = 1.0,
+    regression_topk_share: float = 0.10,
     policy_start_year: int = 2008,
     event_window: int = 5,
     exact_date: bool = False,
@@ -141,6 +143,7 @@ def analyze_special_firms(
         firm_year_special=firm_year_special,
         special_uccs=special_uccs,
         quality_threshold=quality_threshold,
+        regression_topk_share=regression_topk_share,
         policy_start_year=policy_start_year,
         exclude_years=exclude_years,
         quality_min=quality_min,
@@ -164,6 +167,7 @@ def analyze_special_firms(
         firm_year_special=firm_year_special,
         special_uccs=special_uccs,
         quality_threshold=quality_threshold,
+        regression_topk_share=regression_topk_share,
         policy_start_year=policy_start_year,
         exclude_years=exclude_years,
         quality_min=quality_min,
@@ -214,6 +218,7 @@ def analyze_special_firms(
             "filtered_units": filtered_summary,
         },
         "year_col": year_col,
+        "regression_topk_share": float(regression_topk_share),
         "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "analyze_special_firms.json", summary)
@@ -234,6 +239,7 @@ def _run_special_firm_variant(
     firm_year_special: pd.DataFrame,
     special_uccs: pd.Series,
     quality_threshold: float,
+    regression_topk_share: float,
     policy_start_year: int,
     exclude_years: Sequence[int],
     quality_min: float,
@@ -545,6 +551,25 @@ def _run_special_firm_variant(
     event_fig = figure_dir / "fig_event_study_mean_quality.png"
     save_figure(event_fig)
 
+    regression_summary = run_special_firm_regressions(
+        paths=paths,
+        category=category,
+        patent_df=patent_df,
+        dynamic_patent_df=p_dyn,
+        year_col=year_col,
+        firm_year_special=firm_year_special,
+        special_uccs=special_uccs,
+        topk_share=regression_topk_share,
+        logger=logger,
+    )
+    logger.info(
+        "[%s] 特殊企业回归完成: topk_share=%.3f, patent_static=%s, firm_year_dynamic=%s",
+        category,
+        float(regression_topk_share),
+        regression_summary["panel_rows"]["patent_static"],
+        regression_summary["panel_rows"]["firm_year_dynamic"],
+    )
+
     sample_stats = {
         **sample_context,
         "patents_after_quality_filter": int(len(patent_df)),
@@ -554,6 +579,12 @@ def _run_special_firm_variant(
         "company_special_rows": int(len(company_agg)),
         "company_year_rows": int(len(company_year_agg)),
         "company_year_abc_rows": int(len(company_year_abc)),
+        "regression_patent_static_rows": int(regression_summary["panel_rows"]["patent_static"]),
+        "regression_patent_dynamic_rows": int(regression_summary["panel_rows"]["patent_dynamic"]),
+        "regression_firm_year_static_rows": int(regression_summary["panel_rows"]["firm_year_static"]),
+        "regression_firm_year_dynamic_rows": int(regression_summary["panel_rows"]["firm_year_dynamic"]),
+        "regression_firm_year_dynamic_within_rows": int(regression_summary["panel_rows"]["firm_year_dynamic_within"]),
+        "regression_topk_share": float(regression_summary["topk_share"]),
     }
     sample_stats_csv = table_dir / "tbl_special_analysis_sample_sizes.csv"
     pd.DataFrame([sample_stats]).to_csv(sample_stats_csv, index=False, encoding="utf-8-sig")
@@ -583,7 +614,7 @@ def _run_special_firm_variant(
             repo_relative(p_dyn_path),
             repo_relative(company_year_path),
             repo_relative(company_year_abc_path),
-        ],
+        ] + list(regression_summary["data_outputs"]),
         "figure_outputs": [
             repo_relative(special_hist_path),
             repo_relative(trend_fig_path),
@@ -613,8 +644,9 @@ def _run_special_firm_variant(
             repo_relative(ucc_year_top5_csv),
             repo_relative(sample_stats_csv),
             repo_relative(note_path),
-        ],
+        ] + list(regression_summary["table_outputs"]),
         "sample_stats": sample_stats,
+        "regression_summary": regression_summary,
     }
 
 
@@ -865,6 +897,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--quality-min", type=float, default=1e-5, help="Quality_q 最小阈值")
     parser.add_argument("--bs-min", type=float, default=1e-6, help="BS 最小阈值")
     parser.add_argument("--quality-threshold", type=float, default=1.0, help="高质量阈值")
+    parser.add_argument("--regression-topk-share", type=float, default=0.10, help="特殊企业回归的年度前 k%% 阈值")
     parser.add_argument("--policy-start-year", type=int, default=2008, help="特殊企业政策生效年份")
     parser.add_argument("--event-window", type=int, default=5, help="事件研究窗口")
     parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
@@ -885,6 +918,7 @@ def main() -> None:
         quality_min=args.quality_min,
         bs_min=args.bs_min,
         quality_threshold=args.quality_threshold,
+        regression_topk_share=args.regression_topk_share,
         policy_start_year=args.policy_start_year,
         event_window=args.event_window,
         exact_date=args.exact_date,
