@@ -23,7 +23,7 @@ from run_regressions import run_regressions  # noqa: E402
 
 
 INNOVATION_SCHEMA_VERSION = 2
-REGRESSION_SCHEMA_VERSION = 2
+REGRESSION_SCHEMA_VERSION = 4
 
 
 def _require_file(path: Path, label: str) -> Path:

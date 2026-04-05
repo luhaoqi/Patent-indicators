@@ -133,14 +133,25 @@ class Stage2RegressionTests(unittest.TestCase):
                 winsor_upper=0.99,
                 rd_year_min=2019,
                 rd_year_max=2023,
+                future_horizons=(1, 2),
             )
 
-            self.assertEqual(int(summary["schema_version"]), 2)
+            self.assertEqual(int(summary["schema_version"]), 4)
             self.assertTrue(Path(root / summary["regression_panel_path"]).exists())
             self.assertTrue(all((root / relative_path).exists() for relative_path in summary["sample_summary_outputs"]))
 
             regression_panel = pd.read_parquet(root / summary["regression_panel_path"])
-            self.assertTrue({"profit_margin", "rd_intensity_asset", "sales_growth", "roa_w"}.issubset(set(regression_panel.columns)))
+            self.assertTrue(
+                {
+                    "profit_margin",
+                    "rd_intensity_asset",
+                    "sales_growth",
+                    "roa_w",
+                    "roa_w_lead1",
+                    "log_sales_lead2",
+                    "ln_asset_lead1",
+                }.issubset(set(regression_panel.columns))
+            )
 
             summary_csv = root / summary["table_outputs"][0]
             sample_csv = root / summary["sample_summary_outputs"][0]
@@ -151,13 +162,31 @@ class Stage2RegressionTests(unittest.TestCase):
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
 
             self.assertTrue({"spec_id", "dep_var", "key_regressor", "sample_rule", "status"}.issubset(set(summary_df.columns)))
+            self.assertIn("future_horizon", set(summary_df.columns))
             self.assertTrue({"threshold_rows", "final_reg_nobs", "dropped_by_controls_missing"}.issubset(set(sample_df.columns)))
             self.assertIn("PatentCount >= 10", set(sample_df["sample_rule"]))
             self.assertIn("PatentCount >= 5", set(sample_df["sample_rule"]))
             self.assertIn("PatentCount >= 1", set(sample_df["sample_rule"]))
             self.assertTrue((summary_df["status"] == "success").any())
             self.assertTrue(summary_df["spec_id"].astype("string").str.startswith("roa_mean_z_pc10").any())
-            self.assertEqual(int(metadata["schema_version"]), 2)
+            self.assertTrue((summary_df["spec_id"] == "logsales_mean_z_pc10_rdsame").any())
+            self.assertTrue((summary_df["spec_id"] == "logsales_mean_z_pc5_rdsame").any())
+            self.assertTrue((summary_df["spec_id"] == "logsales_mean_z_pc10_rdhorse").any())
+            self.assertTrue((summary_df["spec_id"] == "logsales_mean_z_pc1_rdhorse").any())
+            self.assertTrue((summary_df["spec_id"] == "logsales_rd_asset_pc10_rdonly").any())
+            self.assertTrue((summary_df["spec_id"] == "logasset_rd_asset_pc1_rdonly").any())
+            self.assertTrue((summary_df["spec_id"] == "logasset_mean_z_pc10_cnt1").any())
+            self.assertTrue((summary_df["spec_id"] == "logasset_mean_z_pc10_rdsame").any())
+            self.assertTrue((summary_df["spec_id"] == "logasset_mean_z_pc10_h1_cnt1").any())
+            self.assertTrue((summary_df["spec_id"] == "roa_highq_share_pc5_h2_cnt1").any())
+            logasset_row = summary_df.loc[summary_df["spec_id"] == "logasset_mean_z_pc10_cnt1"].iloc[0]
+            self.assertNotIn("ln_asset +", str(logasset_row["formula"]))
+            future_logasset_row = summary_df.loc[summary_df["spec_id"] == "logasset_mean_z_pc10_h1_cnt1"].iloc[0]
+            self.assertIn(" + ln_asset + ", str(future_logasset_row["formula"]))
+            self.assertTrue(str(logasset_row["output_txt"]).endswith("regressions/current/logasset_mean_z/reg_logasset_mean_z_pc10_cnt1.txt"))
+            self.assertTrue(str(future_logasset_row["output_txt"]).endswith("regressions/future/logasset_mean_z/reg_logasset_mean_z_pc10_h1_cnt1.txt"))
+            self.assertEqual(int(metadata["schema_version"]), 4)
+            self.assertEqual(metadata["future_horizons"], [1, 2])
             self.assertIn("tbl_regression_sample_summary.csv", metadata["sample_summary_outputs"][0])
 
 

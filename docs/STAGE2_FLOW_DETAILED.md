@@ -291,7 +291,8 @@ stage2/
 输出：
 - `stage2/data/regression_panel.parquet`
 - `stage2/tables/tbl_regression_summary.*`
-- `stage2/tables/reg_*.txt`
+- `stage2/tables/回归分析/regressions/current/.../reg_*.txt`
+- `stage2/tables/回归分析/regressions/future/.../reg_*.txt`
 - `stage2/figures/fig_regression_coefficients.png`
 - `stage2/metadata/run_regressions.json`
 

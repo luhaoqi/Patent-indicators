@@ -20,13 +20,15 @@ from common.tables import export_table  # noqa: E402
 
 
 OUTPUT_CATEGORY = "回归分析"
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 4
 DEFAULT_SAMPLE_THRESHOLDS = (10, 5, 1)
 DEFAULT_WINSOR_LOWER = 0.01
 DEFAULT_WINSOR_UPPER = 0.99
 DEFAULT_RD_YEAR_MIN = 2019
 DEFAULT_RD_YEAR_MAX = 2023
+DEFAULT_FUTURE_HORIZONS = (1, 2, 3, 4, 5)
 MAIN_QUALITY_VARS = ("mean_z_q_ft", "highq_share_ft", "log_highq_count_ft")
+FUTURE_QUALITY_VARS = ("mean_z_q_ft", "highq_share_ft")
 QUALITY_VAR_LABELS = {
     "mean_z_q_ft": "mean_z",
     "highq_share_ft": "highq_share",
@@ -34,6 +36,7 @@ QUALITY_VAR_LABELS = {
     "mean_raw_q_w_ft": "mean_raw_q_w",
     "rd_intensity_asset": "rd_asset",
 }
+REGRESSION_TEXT_DIRNAME = "regressions"
 
 
 def run_regressions(
@@ -50,11 +53,13 @@ def run_regressions(
     winsor_upper: float = DEFAULT_WINSOR_UPPER,
     rd_year_min: int = DEFAULT_RD_YEAR_MIN,
     rd_year_max: int = DEFAULT_RD_YEAR_MAX,
+    future_horizons: Sequence[int] = DEFAULT_FUTURE_HORIZONS,
     exact_date: bool = False,
 ) -> dict[str, object]:
     from linearmodels.panel import PanelOLS
 
     thresholds = _normalize_thresholds(sample_thresholds)
+    horizons = _normalize_future_horizons(future_horizons)
     if not (0.0 <= winsor_lower < winsor_upper <= 1.0):
         raise ValueError("winsor_lower / winsor_upper 必须满足 0 <= lower < upper <= 1")
     if rd_year_min > rd_year_max:
@@ -91,18 +96,30 @@ def run_regressions(
     logger.info("财务与创新指标合并后 rows=%s", len(df))
 
     df = _prepare_regression_panel(df, winsor_lower=winsor_lower, winsor_upper=winsor_upper)
+    dep_configs = _build_dep_configs(df)
+    df = _add_future_outcome_columns(
+        df,
+        dep_sources=[config["dep_source"] for config in dep_configs],
+        future_horizons=horizons,
+    )
     regression_panel_path = paths.data_dir / "regression_panel.parquet"
     df.to_parquet(regression_panel_path, index=False)
     logger.info("回归面板已写出: %s", repo_relative(regression_panel_path))
 
-    dep_configs = _build_dep_configs(df)
     specs = _build_main_specs(dep_configs=dep_configs, sample_thresholds=thresholds)
+    specs.extend(
+        _build_future_specs(
+            dep_configs=dep_configs,
+            sample_thresholds=thresholds,
+            future_horizons=horizons,
+        )
+    )
     specs.extend(
         _build_rd_specs(
             dep_configs=dep_configs,
             rd_year_min=rd_year_min,
             rd_year_max=rd_year_max,
-            sample_threshold=thresholds[0],
+            sample_thresholds=thresholds,
         )
     )
     logger.info("待执行回归规格数=%s", len(specs))
@@ -188,6 +205,7 @@ def run_regressions(
         "winsor_upper": float(winsor_upper),
         "rd_year_min": int(rd_year_min),
         "rd_year_max": int(rd_year_max),
+        "future_horizons": list(horizons),
         "exact_date": bool(exact_date),
     }
     write_json(paths.metadata_dir / "run_regressions.json", summary)
@@ -201,6 +219,15 @@ def _normalize_thresholds(sample_thresholds: Sequence[int]) -> tuple[int, ...]:
         raise ValueError("sample_thresholds 不能为空")
     if values[-1] < 1:
         raise ValueError("sample_thresholds 至少应包含一个 >=1 的门槛")
+    return tuple(values)
+
+
+def _normalize_future_horizons(future_horizons: Sequence[int]) -> tuple[int, ...]:
+    values = sorted({int(value) for value in future_horizons})
+    if not values:
+        raise ValueError("future_horizons 不能为空")
+    if values[0] < 1:
+        raise ValueError("future_horizons 必须全部 >= 1")
     return tuple(values)
 
 
@@ -381,6 +408,32 @@ def _prepare_regression_panel(
     return df
 
 
+def _future_dep_source(dep_source: str, horizon: int) -> str:
+    return f"{dep_source}_lead{int(horizon)}"
+
+
+def _add_future_outcome_columns(
+    frame: pd.DataFrame,
+    *,
+    dep_sources: Sequence[str],
+    future_horizons: Sequence[int],
+) -> pd.DataFrame:
+    df = frame.copy()
+    base_columns = [column for column in _unique_in_order(dep_sources) if column in df.columns]
+    if not base_columns:
+        return df
+
+    base = df[["stkcd", "year", *base_columns]].copy()
+    for horizon in future_horizons:
+        lead_frame = base.copy()
+        lead_frame["year"] = lead_frame["year"] - int(horizon)
+        lead_frame = lead_frame.rename(
+            columns={column: _future_dep_source(column, int(horizon)) for column in base_columns}
+        )
+        df = df.merge(lead_frame, on=["stkcd", "year"], how="left")
+    return df
+
+
 def _safe_ratio(numerator: Any, denominator: Any) -> pd.Series:
     if numerator is None or denominator is None:
         return pd.Series(dtype="float64")
@@ -421,18 +474,19 @@ def _winsorize_by_year(
 
 def _build_dep_configs(frame: pd.DataFrame) -> list[dict[str, Any]]:
     configs = [
-        {"dep_var": "roa", "dep_source": "roa_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True},
-        {"dep_var": "roe", "dep_source": "roe_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True},
-        {"dep_var": "ebit_asset", "dep_source": "ebit_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": False},
-        {"dep_var": "ebitda_asset", "dep_source": "ebitda_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": False},
-        {"dep_var": "profit_asset", "dep_source": "profit_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": False},
-        {"dep_var": "profit_margin", "dep_source": "profit_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": False},
-        {"dep_var": "ebit_margin", "dep_source": "ebit_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": False},
-        {"dep_var": "ebitda_margin", "dep_source": "ebitda_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": False},
-        {"dep_var": "log_sales", "dep_source": "log_sales", "use_gassets_control": False, "priority_group": "margin", "include_rd": False},
-        {"dep_var": "sales_growth", "dep_source": "sales_growth_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": False},
-        {"dep_var": "gassets", "dep_source": "gassets_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": False},
-        {"dep_var": "gfa", "dep_source": "gfa_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": False},
+        {"dep_var": "roa", "dep_source": "roa_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True, "include_future": True},
+        {"dep_var": "roe", "dep_source": "roe_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True, "include_future": True},
+        {"dep_var": "ebit_asset", "dep_source": "ebit_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True, "include_future": True},
+        {"dep_var": "ebitda_asset", "dep_source": "ebitda_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True, "include_future": False},
+        {"dep_var": "profit_asset", "dep_source": "profit_asset_w", "use_gassets_control": True, "priority_group": "main", "include_rd": True, "include_future": False},
+        {"dep_var": "profit_margin", "dep_source": "profit_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": True, "include_future": False},
+        {"dep_var": "ebit_margin", "dep_source": "ebit_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": True, "include_future": False},
+        {"dep_var": "ebitda_margin", "dep_source": "ebitda_margin_w", "use_gassets_control": False, "priority_group": "margin", "include_rd": True, "include_future": False},
+        {"dep_var": "log_sales", "dep_source": "log_sales", "use_gassets_control": False, "priority_group": "margin", "include_rd": True, "include_future": True},
+        {"dep_var": "log_asset", "dep_source": "ln_asset", "use_gassets_control": False, "priority_group": "growth", "include_rd": True, "include_future": True},
+        {"dep_var": "sales_growth", "dep_source": "sales_growth_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": True, "include_future": False},
+        {"dep_var": "gassets", "dep_source": "gassets_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": True, "include_future": False},
+        {"dep_var": "gfa", "dep_source": "gfa_w", "use_gassets_control": False, "priority_group": "growth", "include_rd": True, "include_future": False},
     ]
     available: list[dict[str, Any]] = []
     for config in configs:
@@ -440,6 +494,22 @@ def _build_dep_configs(frame: pd.DataFrame) -> list[dict[str, Any]]:
         if dep_source in frame.columns and frame[dep_source].notna().any():
             available.append(config)
     return available
+
+
+def _build_controls_for_dep(
+    dep_config: dict[str, Any],
+    *,
+    dep_source_override: Optional[str] = None,
+) -> list[str]:
+    controls: list[str] = []
+    dep_source = dep_source_override or dep_config["dep_source"]
+    if dep_source != "ln_asset":
+        controls.append("ln_asset")
+    if dep_source != "lev_ratio":
+        controls.append("lev_ratio")
+    if dep_config["use_gassets_control"] and dep_source != "gassets":
+        controls.append("gassets")
+    return controls
 
 
 def _build_main_specs(
@@ -459,9 +529,7 @@ def _build_main_specs(
     ]
     for threshold in sample_thresholds:
         for dep_config in dep_configs:
-            controls = ["ln_asset", "lev_ratio"]
-            if dep_config["use_gassets_control"]:
-                controls.append("gassets")
+            controls = _build_controls_for_dep(dep_config)
             for quality_var, add_count_control in quality_pairs:
                 spec_id = _build_spec_id(
                     dep_var=dep_config["dep_var"],
@@ -482,6 +550,7 @@ def _build_main_specs(
                         "year_range": None,
                         "controls": controls,
                         "add_count_control": bool(add_count_control),
+                        "future_horizon": 0,
                         "rd_var": None,
                         "rd_same_sample": False,
                         "rd_year_min": None,
@@ -491,97 +560,144 @@ def _build_main_specs(
     return specs
 
 
+def _build_future_specs(
+    *,
+    dep_configs: Sequence[dict[str, Any]],
+    sample_thresholds: Sequence[int],
+    future_horizons: Sequence[int],
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    future_dep_configs = [config for config in dep_configs if config.get("include_future")]
+    for threshold in sample_thresholds:
+        for horizon in future_horizons:
+            for dep_config in future_dep_configs:
+                future_dep_source = _future_dep_source(dep_config["dep_source"], int(horizon))
+                controls = _build_controls_for_dep(dep_config, dep_source_override=future_dep_source)
+                for quality_var in FUTURE_QUALITY_VARS:
+                    spec_id = _build_spec_id(
+                        dep_var=dep_config["dep_var"],
+                        key_regressor=quality_var,
+                        sample_threshold=threshold,
+                        suffix=f"h{int(horizon)}_cnt1",
+                    )
+                    specs.append(
+                        {
+                            "spec_id": spec_id,
+                            "model_family": "future_main",
+                            "dep_var": dep_config["dep_var"],
+                            "dep_source": future_dep_source,
+                            "key_regressor": quality_var,
+                            "regressor_vars": [quality_var],
+                            "sample_threshold": int(threshold),
+                            "sample_rule": f"PatentCount >= {int(threshold)}",
+                            "year_range": None,
+                            "controls": controls,
+                            "add_count_control": True,
+                            "future_horizon": int(horizon),
+                            "rd_var": None,
+                            "rd_same_sample": False,
+                            "rd_year_min": None,
+                            "rd_year_max": None,
+                        }
+                    )
+    return specs
+
+
 def _build_rd_specs(
     *,
     dep_configs: Sequence[dict[str, Any]],
     rd_year_min: int,
     rd_year_max: int,
-    sample_threshold: int,
+    sample_thresholds: Sequence[int],
 ) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     rd_var = "rd_intensity_asset"
-    for dep_config in dep_configs:
-        if not dep_config["include_rd"]:
-            continue
-        controls = ["ln_asset", "lev_ratio", "gassets"]
-        for quality_var in MAIN_QUALITY_VARS:
-            baseline_id = _build_spec_id(
+    for sample_threshold in sample_thresholds:
+        for dep_config in dep_configs:
+            if not dep_config["include_rd"]:
+                continue
+            controls = _build_controls_for_dep(dep_config)
+            for quality_var in MAIN_QUALITY_VARS:
+                baseline_id = _build_spec_id(
+                    dep_var=dep_config["dep_var"],
+                    key_regressor=quality_var,
+                    sample_threshold=sample_threshold,
+                    suffix="rdsame",
+                )
+                specs.append(
+                    {
+                        "spec_id": baseline_id,
+                        "model_family": "rd_same_sample",
+                        "dep_var": dep_config["dep_var"],
+                        "dep_source": dep_config["dep_source"],
+                        "key_regressor": quality_var,
+                        "regressor_vars": [quality_var],
+                        "sample_threshold": int(sample_threshold),
+                        "sample_rule": f"PatentCount >= {int(sample_threshold)}",
+                        "year_range": f"{rd_year_min}-{rd_year_max}",
+                        "controls": controls,
+                        "add_count_control": True,
+                        "future_horizon": 0,
+                        "rd_var": rd_var,
+                        "rd_same_sample": True,
+                        "rd_year_min": int(rd_year_min),
+                        "rd_year_max": int(rd_year_max),
+                    }
+                )
+
+                horse_race_id = _build_spec_id(
+                    dep_var=dep_config["dep_var"],
+                    key_regressor=quality_var,
+                    sample_threshold=sample_threshold,
+                    suffix="rdhorse",
+                )
+                specs.append(
+                    {
+                        "spec_id": horse_race_id,
+                        "model_family": "rd_horse_race",
+                        "dep_var": dep_config["dep_var"],
+                        "dep_source": dep_config["dep_source"],
+                        "key_regressor": quality_var,
+                        "regressor_vars": [quality_var, rd_var],
+                        "sample_threshold": int(sample_threshold),
+                        "sample_rule": f"PatentCount >= {int(sample_threshold)}",
+                        "year_range": f"{rd_year_min}-{rd_year_max}",
+                        "controls": controls,
+                        "add_count_control": True,
+                        "future_horizon": 0,
+                        "rd_var": rd_var,
+                        "rd_same_sample": True,
+                        "rd_year_min": int(rd_year_min),
+                        "rd_year_max": int(rd_year_max),
+                    }
+                )
+
+            rd_only_id = _build_spec_id(
                 dep_var=dep_config["dep_var"],
-                key_regressor=quality_var,
+                key_regressor=rd_var,
                 sample_threshold=sample_threshold,
-                suffix="rdsame",
+                suffix="rdonly",
             )
             specs.append(
                 {
-                    "spec_id": baseline_id,
-                    "model_family": "rd_same_sample",
+                    "spec_id": rd_only_id,
+                    "model_family": "rd_only",
                     "dep_var": dep_config["dep_var"],
                     "dep_source": dep_config["dep_source"],
-                    "key_regressor": quality_var,
-                    "regressor_vars": [quality_var],
+                    "key_regressor": rd_var,
+                    "regressor_vars": [rd_var],
                     "sample_threshold": int(sample_threshold),
                     "sample_rule": f"PatentCount >= {int(sample_threshold)}",
                     "year_range": f"{rd_year_min}-{rd_year_max}",
                     "controls": controls,
                     "add_count_control": True,
+                    "future_horizon": 0,
                     "rd_var": rd_var,
                     "rd_same_sample": True,
                     "rd_year_min": int(rd_year_min),
                     "rd_year_max": int(rd_year_max),
                 }
             )
-
-            horse_race_id = _build_spec_id(
-                dep_var=dep_config["dep_var"],
-                key_regressor=quality_var,
-                sample_threshold=sample_threshold,
-                suffix="rdhorse",
-            )
-            specs.append(
-                {
-                    "spec_id": horse_race_id,
-                    "model_family": "rd_horse_race",
-                    "dep_var": dep_config["dep_var"],
-                    "dep_source": dep_config["dep_source"],
-                    "key_regressor": quality_var,
-                    "regressor_vars": [quality_var, rd_var],
-                    "sample_threshold": int(sample_threshold),
-                    "sample_rule": f"PatentCount >= {int(sample_threshold)}",
-                    "year_range": f"{rd_year_min}-{rd_year_max}",
-                    "controls": controls,
-                    "add_count_control": True,
-                    "rd_var": rd_var,
-                    "rd_same_sample": True,
-                    "rd_year_min": int(rd_year_min),
-                    "rd_year_max": int(rd_year_max),
-                }
-            )
-
-        rd_only_id = _build_spec_id(
-            dep_var=dep_config["dep_var"],
-            key_regressor=rd_var,
-            sample_threshold=sample_threshold,
-            suffix="rdonly",
-        )
-        specs.append(
-            {
-                "spec_id": rd_only_id,
-                "model_family": "rd_only",
-                "dep_var": dep_config["dep_var"],
-                "dep_source": dep_config["dep_source"],
-                "key_regressor": rd_var,
-                "regressor_vars": [rd_var],
-                "sample_threshold": int(sample_threshold),
-                "sample_rule": f"PatentCount >= {int(sample_threshold)}",
-                "year_range": f"{rd_year_min}-{rd_year_max}",
-                "controls": controls,
-                "add_count_control": True,
-                "rd_var": rd_var,
-                "rd_same_sample": True,
-                "rd_year_min": int(rd_year_min),
-                "rd_year_max": int(rd_year_max),
-            }
-        )
     return specs
 
 
@@ -595,6 +711,16 @@ def _build_spec_id(
     dep_part = dep_var.replace("_", "")
     reg_part = QUALITY_VAR_LABELS.get(key_regressor, key_regressor.replace("_", ""))
     return f"{dep_part}_{reg_part}_pc{sample_threshold}_{suffix}"
+
+
+def _build_regression_text_path(table_dir: Path, spec: dict[str, Any]) -> Path:
+    family_dir = "future" if int(spec["future_horizon"]) > 0 else "current"
+    dep_part = spec["dep_var"].replace("_", "")
+    reg_part = QUALITY_VAR_LABELS.get(spec["key_regressor"], spec["key_regressor"].replace("_", ""))
+    group_dir = f"{dep_part}_{reg_part}"
+    text_dir = table_dir / REGRESSION_TEXT_DIRNAME / family_dir / group_dir
+    text_dir.mkdir(parents=True, exist_ok=True)
+    return text_dir / f"reg_{spec['spec_id']}.txt"
 
 
 def _run_single_spec(
@@ -621,11 +747,12 @@ def _run_single_spec(
         sample_df = sample_df[sample_df[spec["rd_var"]].notna()].copy()
 
     logger.info(
-        "[REG_START] spec_id=%s dep=%s x=%s sample_rule=%s add_count=%s add_rd=%s",
+        "[REG_START] spec_id=%s dep=%s x=%s sample_rule=%s horizon=%s add_count=%s add_rd=%s",
         spec["spec_id"],
         spec["dep_var"],
         spec["key_regressor"],
         spec["sample_rule"],
+        int(spec["future_horizon"]),
         int(spec["add_count_control"]),
         int(spec["rd_var"] is not None and spec["key_regressor"] != spec["rd_var"] and spec["rd_var"] in spec["regressor_vars"]),
     )
@@ -674,6 +801,7 @@ def _run_single_spec(
         "sample_threshold": int(spec["sample_threshold"]),
         "sample_rule": spec["sample_rule"],
         "year_range": spec["year_range"],
+        "future_horizon": int(spec["future_horizon"]),
         "add_log_patent_count": bool(spec["add_count_control"]),
         "controls": " + ".join(controls),
         "coef": np.nan,
@@ -696,6 +824,7 @@ def _run_single_spec(
         "key_regressor": spec["key_regressor"],
         "sample_rule": spec["sample_rule"],
         "year_range": spec["year_range"] or f"{int(df['year'].min())}-{int(df['year'].max())}",
+        "future_horizon": int(spec["future_horizon"]),
         "financial_universe_rows": universe_counts["financial_universe_rows"],
         "financial_universe_firms": universe_counts["financial_universe_firms"],
         "patent_matched_rows": universe_counts["patent_matched_rows"],
@@ -730,7 +859,7 @@ def _run_single_spec(
     try:
         model = panel_ols_cls.from_formula(formula, data=panel_df, drop_absorbed=True)
         result = model.fit(cov_type="clustered", cluster_entity=True)
-        text_path = table_dir / f"reg_{spec['spec_id']}.txt"
+        text_path = _build_regression_text_path(table_dir, spec)
         text_path.write_text(str(result.summary), encoding="utf-8")
 
         summary_row.update(
@@ -827,6 +956,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--winsor-upper", type=float, default=DEFAULT_WINSOR_UPPER, help="财务因变量按年 winsorize 上分位数")
     parser.add_argument("--rd-year-min", type=int, default=DEFAULT_RD_YEAR_MIN, help="RD 对照回归起始年份")
     parser.add_argument("--rd-year-max", type=int, default=DEFAULT_RD_YEAR_MAX, help="RD 对照回归终止年份")
+    parser.add_argument("--future-horizons", nargs="+", type=int, default=list(DEFAULT_FUTURE_HORIZONS), help="未来财务回归 horizon 列表")
     parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，读取/输出 stage2_exact")
     return parser
 
@@ -846,6 +976,7 @@ def main() -> None:
         winsor_upper=args.winsor_upper,
         rd_year_min=args.rd_year_min,
         rd_year_max=args.rd_year_max,
+        future_horizons=args.future_horizons,
         exact_date=args.exact_date,
     )
 
