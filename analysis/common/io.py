@@ -88,7 +88,7 @@ def copy_if_needed(source: Path, target: Path) -> None:
 def build_logger(name: str, log_path: Path) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()
+    close_logger(logger)
     formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(message)s")
 
     stream_handler = logging.StreamHandler()
@@ -100,6 +100,16 @@ def build_logger(name: str, log_path: Path) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     return logger
+
+
+def close_logger(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        try:
+            handler.flush()
+        except Exception:
+            pass
+        handler.close()
 
 
 def normalize_string_series(series: Any) -> Any:

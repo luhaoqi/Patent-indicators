@@ -104,8 +104,16 @@ def main():
         event_window=stage2_config.analyze_special_firms.event_window,
         innovation_top_k=stage2_config.build_firm_year_innovation.top_k,
         innovation_quality_cap=stage2_config.build_firm_year_innovation.quality_cap,
+        innovation_winsor_lower=stage2_config.build_firm_year_innovation.winsor_lower,
+        innovation_winsor_upper=stage2_config.build_firm_year_innovation.winsor_upper,
+        innovation_high_quality_share=stage2_config.build_firm_year_innovation.high_quality_share,
         regression_year_min=stage2_config.run_regressions.year_min,
         regression_year_max=stage2_config.run_regressions.year_max,
+        regression_sample_thresholds=stage2_config.run_regressions.sample_thresholds,
+        regression_winsor_lower=stage2_config.run_regressions.winsor_lower,
+        regression_winsor_upper=stage2_config.run_regressions.winsor_upper,
+        regression_rd_year_min=stage2_config.run_regressions.rd_year_min,
+        regression_rd_year_max=stage2_config.run_regressions.rd_year_max,
         chunksize=stage2_config.build_experiment_patent_panel.chunksize,
     )
 

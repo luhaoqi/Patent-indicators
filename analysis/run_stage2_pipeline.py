@@ -22,6 +22,10 @@ from export_top_patents_by_year import export_top_patents_by_year  # noqa: E402
 from run_regressions import run_regressions  # noqa: E402
 
 
+INNOVATION_SCHEMA_VERSION = 2
+REGRESSION_SCHEMA_VERSION = 2
+
+
 def _require_file(path: Path, label: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"缺少 {label}: {path}")
@@ -36,6 +40,10 @@ def _load_json_if_exists(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _metadata_schema_matches(payload: Optional[Dict[str, Any]], expected_version: int) -> bool:
+    return payload is not None and int(payload.get("schema_version", 0)) == int(expected_version)
 
 
 def _resolve_metadata_paths(value: Any) -> list[Path]:
@@ -117,8 +125,16 @@ def run_stage2(
     special_regression_topk_share: float = 0.10,
     innovation_top_k: int = 10,
     innovation_quality_cap: float = 1000.0,
+    innovation_winsor_lower: float = 0.01,
+    innovation_winsor_upper: float = 0.99,
+    innovation_high_quality_share: float = 0.10,
     regression_year_min: int = 2000,
     regression_year_max: int = 2023,
+    regression_sample_thresholds: Sequence[int] = (10, 5, 1),
+    regression_winsor_lower: float = 0.01,
+    regression_winsor_upper: float = 0.99,
+    regression_rd_year_min: int = 2019,
+    regression_rd_year_max: int = 2023,
     chunksize: int = 100000,
     resume_existing: bool = True,
     exact_date: bool = False,
@@ -164,8 +180,16 @@ def run_stage2(
         regression_topk_share=special_regression_topk_share,
         innovation_top_k=innovation_top_k,
         innovation_quality_cap=innovation_quality_cap,
+        innovation_winsor_lower=innovation_winsor_lower,
+        innovation_winsor_upper=innovation_winsor_upper,
+        innovation_high_quality_share=innovation_high_quality_share,
         regression_year_min=regression_year_min,
         regression_year_max=regression_year_max,
+        regression_sample_thresholds=regression_sample_thresholds,
+        regression_winsor_lower=regression_winsor_lower,
+        regression_winsor_upper=regression_winsor_upper,
+        regression_rd_year_min=regression_rd_year_min,
+        regression_rd_year_max=regression_rd_year_max,
         chunksize=chunksize,
         notes={
             "resume_existing": bool(resume_existing),
@@ -335,10 +359,13 @@ def run_stage2(
         logger.info("[5/7] analyze_special_firms 完成，用时 %.1fs", time.perf_counter() - step_start)
 
     innovation_path = paths.data_dir / "firm_year_innovation.parquet"
-    if resume_existing and (paths.metadata_dir / "build_firm_year_innovation.json").exists() and innovation_path.exists():
+    innovation_metadata = _load_json_if_exists(paths.metadata_dir / "build_firm_year_innovation.json") if resume_existing else None
+    if resume_existing and _metadata_schema_matches(innovation_metadata, INNOVATION_SCHEMA_VERSION) and innovation_path.exists():
         logger.info("[6/7] 复用已有 firm_year_innovation，跳过构造")
         step_summaries["build_firm_year_innovation"] = repo_relative(innovation_path)
     else:
+        if resume_existing and innovation_metadata is not None and not _metadata_schema_matches(innovation_metadata, INNOVATION_SCHEMA_VERSION):
+            logger.info("[6/7] 发现旧版 firm_year_innovation metadata，改为按新口径重建")
         logger.info("[6/7] 构造 firm_year_innovation")
         step_start = time.perf_counter()
         innovation_path = build_firm_year_innovation(
@@ -349,6 +376,9 @@ def run_stage2(
             shared_root=shared_root,
             top_k=innovation_top_k,
             quality_cap=innovation_quality_cap,
+            winsor_lower=innovation_winsor_lower,
+            winsor_upper=innovation_winsor_upper,
+            high_quality_share=innovation_high_quality_share,
             exact_date=exact_date,
         )
         step_summaries["build_firm_year_innovation"] = repo_relative(innovation_path)
@@ -356,8 +386,11 @@ def run_stage2(
 
     regression_summary = _load_resume_summary_from_metadata(
         paths.metadata_dir / "run_regressions.json",
-        required_keys=("regression_panel_path", "table_outputs", "figure_outputs"),
+        required_keys=("regression_panel_path", "table_outputs", "figure_outputs", "sample_summary_outputs"),
     ) if resume_existing else None
+    if regression_summary is not None and not _metadata_schema_matches(regression_summary, REGRESSION_SCHEMA_VERSION):
+        logger.info("[7/7] 发现旧版回归 metadata，改为按新口径重跑回归")
+        regression_summary = None
     if regression_summary is not None:
         logger.info("[7/7] 复用已有回归结果，跳过计算")
         step_summaries["run_regressions"] = regression_summary
@@ -372,6 +405,11 @@ def run_stage2(
             shared_root=shared_root,
             year_min=regression_year_min,
             year_max=regression_year_max,
+            sample_thresholds=regression_sample_thresholds,
+            winsor_lower=regression_winsor_lower,
+            winsor_upper=regression_winsor_upper,
+            rd_year_min=regression_rd_year_min,
+            rd_year_max=regression_rd_year_max,
             exact_date=exact_date,
         )
         step_summaries["run_regressions"] = regression_summary
@@ -402,6 +440,9 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--top-patents-per-year", type=int, default=100, help="每年导出的 top 专利数量")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")
     parser.add_argument("--innovation-quality-cap", type=float, default=1000.0, help="firm-year 创新指数 Quality_q 上限")
+    parser.add_argument("--innovation-winsor-lower", type=float, default=0.01, help="firm-year 创新指标年内 winsorize 下分位数")
+    parser.add_argument("--innovation-winsor-upper", type=float, default=0.99, help="firm-year 创新指标年内 winsorize 上分位数")
+    parser.add_argument("--innovation-high-quality-share", type=float, default=0.10, help="firm-year 高质量专利占比阈值")
     parser.add_argument("--analysis-quality-threshold", type=float, default=1.0, help="企业对比中的高质量阈值")
     parser.add_argument("--special-regression-topk-share", type=float, default=0.10, help="特殊企业回归中年度前 k%% 指标阈值")
     parser.add_argument("--quality-desc-threshold", type=float, default=5.0, help="基础描述统计中的高质量阈值")
@@ -411,6 +452,11 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--event-window", type=int, default=5, help="事件研究窗口")
     parser.add_argument("--regression-year-min", type=int, default=2000, help="回归最小年份")
     parser.add_argument("--regression-year-max", type=int, default=2023, help="回归最大年份")
+    parser.add_argument("--regression-sample-thresholds", nargs="+", type=int, default=[10, 5, 1], help="上市公司回归的 PatentCount 门槛列表")
+    parser.add_argument("--regression-winsor-lower", type=float, default=0.01, help="财务因变量按年 winsorize 下分位数")
+    parser.add_argument("--regression-winsor-upper", type=float, default=0.99, help="财务因变量按年 winsorize 上分位数")
+    parser.add_argument("--regression-rd-year-min", type=int, default=2019, help="RD 对照回归起始年份")
+    parser.add_argument("--regression-rd-year-max", type=int, default=2023, help="RD 对照回归终止年份")
     parser.add_argument("--chunksize", type=int, default=100000, help="仅写入 metadata 的 patent_master 构造 chunksize")
     parser.add_argument("--force-rerun", action="store_true", help="忽略已有 stage2 产物并强制重跑")
     parser.add_argument("--exact-date", action="store_true", help="使用 exact_date 模式，输出到 stage2_exact")
@@ -432,6 +478,9 @@ def main() -> None:
         chunksize=args.chunksize,
         innovation_top_k=args.innovation_top_k,
         innovation_quality_cap=args.innovation_quality_cap,
+        innovation_winsor_lower=args.innovation_winsor_lower,
+        innovation_winsor_upper=args.innovation_winsor_upper,
+        innovation_high_quality_share=args.innovation_high_quality_share,
         analysis_quality_threshold=args.analysis_quality_threshold,
         special_regression_topk_share=args.special_regression_topk_share,
         quality_desc_threshold=args.quality_desc_threshold,
@@ -441,6 +490,11 @@ def main() -> None:
         event_window=args.event_window,
         regression_year_min=args.regression_year_min,
         regression_year_max=args.regression_year_max,
+        regression_sample_thresholds=args.regression_sample_thresholds,
+        regression_winsor_lower=args.regression_winsor_lower,
+        regression_winsor_upper=args.regression_winsor_upper,
+        regression_rd_year_min=args.regression_rd_year_min,
+        regression_rd_year_max=args.regression_rd_year_max,
         resume_existing=not args.force_rerun,
         exact_date=args.exact_date,
     )

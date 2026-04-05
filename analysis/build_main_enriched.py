@@ -12,7 +12,7 @@ if str(CURRENT_DIR) not in sys.path:
 import pandas as pd  # noqa: E402
 import polars as pl  # noqa: E402
 
-from common.io import build_logger, copy_if_needed, list_csv_files, write_json  # noqa: E402
+from common.io import build_logger, close_logger, copy_if_needed, list_csv_files, write_json  # noqa: E402
 from common.paths import build_experiment_paths, build_shared_paths, repo_relative, resolve_repo_path  # noqa: E402
 
 
@@ -239,6 +239,7 @@ def build_patent_master(
         },
     )
     logger.info("patent_master 输出: %s", repo_relative(patent_master_path))
+    close_logger(logger)
     return {
         "patent_master_path": patent_master_path,
         "metadata_path": metadata_path,
@@ -324,6 +325,7 @@ def build_experiment_patent_panel(
     }
     write_json(paths.metadata_dir / "build_experiment_patent_panel.json", metadata)
     logger.info("experiment_patent_panel 输出: %s", repo_relative(panel_path))
+    close_logger(logger)
     return {
         "main_path": main_path,
         "experiment_patent_panel_path": panel_path,

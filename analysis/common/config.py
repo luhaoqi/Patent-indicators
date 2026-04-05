@@ -53,12 +53,20 @@ class SpecialFirmsConfig:
 class InnovationConfig:
     top_k: int = 10
     quality_cap: float = 1000.0
+    winsor_lower: float = 0.01
+    winsor_upper: float = 0.99
+    high_quality_share: float = 0.10
 
 
 @dataclass(frozen=True)
 class RegressionConfig:
     year_min: int = 2000
     year_max: int = 2023
+    sample_thresholds: tuple[int, ...] = (10, 5, 1)
+    winsor_lower: float = 0.01
+    winsor_upper: float = 0.99
+    rd_year_min: int = 2019
+    rd_year_max: int = 2023
 
 
 @dataclass(frozen=True)
@@ -101,8 +109,16 @@ class Stage2Config:
         regression_topk_share: float,
         innovation_top_k: int,
         innovation_quality_cap: float,
+        innovation_winsor_lower: float,
+        innovation_winsor_upper: float,
+        innovation_high_quality_share: float,
         regression_year_min: int,
         regression_year_max: int,
+        regression_sample_thresholds: Sequence[int],
+        regression_winsor_lower: float,
+        regression_winsor_upper: float,
+        regression_rd_year_min: int,
+        regression_rd_year_max: int,
         chunksize: int,
         notes: Optional[dict[str, Any]] = None,
         exact_date: bool = False,
@@ -144,10 +160,18 @@ class Stage2Config:
             build_firm_year_innovation=InnovationConfig(
                 top_k=int(innovation_top_k),
                 quality_cap=float(innovation_quality_cap),
+                winsor_lower=float(innovation_winsor_lower),
+                winsor_upper=float(innovation_winsor_upper),
+                high_quality_share=float(innovation_high_quality_share),
             ),
             run_regressions=RegressionConfig(
                 year_min=int(regression_year_min),
                 year_max=int(regression_year_max),
+                sample_thresholds=tuple(int(value) for value in regression_sample_thresholds),
+                winsor_lower=float(regression_winsor_lower),
+                winsor_upper=float(regression_winsor_upper),
+                rd_year_min=int(regression_rd_year_min),
+                rd_year_max=int(regression_rd_year_max),
             ),
             notes=notes or {},
         )

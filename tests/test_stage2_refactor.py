@@ -211,6 +211,21 @@ class Stage2RefactorTests(unittest.TestCase):
                 float(innovation_df.loc[innovation_df["Stkid"] == "000001", "Innovation_raw"].iloc[0]),
                 2.0,
             )
+            self.assertTrue(
+                {
+                    "mean_z_q_ft",
+                    "highq_share_ft",
+                    "highq_count_ft",
+                    "log_highq_count_ft",
+                    "mean_raw_q_w_ft",
+                    "log_patent_count_ft",
+                }.issubset(set(innovation_df.columns))
+            )
+            self.assertEqual(int(innovation_df.loc[innovation_df["Stkid"] == "000001", "PatentCount"].iloc[0]), 2)
+            self.assertAlmostEqual(
+                float(innovation_df.loc[innovation_df["Stkid"] == "000001", "highq_share_ft"].iloc[0]),
+                0.5,
+            )
 
     def test_export_top_patents_by_year_with_company_name_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
