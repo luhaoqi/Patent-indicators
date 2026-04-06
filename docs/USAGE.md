@@ -104,3 +104,130 @@ python inspect_patent_similarity_case.py \
 - 某些数据源里，`申请号 + 公开公告年份` 可能不足以唯一定位一条记录
 - 这时加上 `--date`，就是明确告诉脚本你要分析哪一个公开公告日对应的那条专利
 - 如果 `申请号 + 年份` 已经唯一，`--date` 可以不传
+
+8. exact 实验批量排名查询
+
+如果你想批量查询一批申请号在两个 exact 实验里的：
+
+- 年内排名
+- 年内排名百分比
+- `quantity_q`
+
+使用：
+
+```bash
+python search_exact_time_patents.py input.csv output.csv
+```
+
+默认查询的实验目录：
+
+- `outputs/experiments/标题_摘要_ExactTime_window_1/stage1_exact/`
+- `outputs/experiments/标题_摘要_ExactTime_window_3/stage1_exact/`
+
+8.1 输入格式
+
+最少只需要一列：
+
+- `申请号`
+
+也可以额外提供一列公开年份：
+
+- `公开年份`
+- 或 `公开公告年份`
+
+如果只有 `申请号`：
+
+- 脚本会先去 `outputs/shared/raw_patent_authorized_parts/*.parquet` 里查这个申请号出现过的所有 `公开公告年份`
+- 再按这些年份去两个 exact 实验里查询
+- 如果同一个申请号对应多个公开年份，输出会展开成多行
+
+如果同时提供了 `申请号 + 公开年份`：
+
+- 脚本先按输入年份查
+- 如果共享授权数据表明实际公开年份不同，也会继续按实际年份补查
+
+8.2 常用命令
+
+只查共享授权 parquet 和实验产物，不查原始 CSV：
+
+```bash
+python search_exact_time_patents.py \
+  "outputs/第二十四届中国专利金奖.csv" \
+  "outputs/第二十四届中国专利金奖_exact_time_lookup.csv" \
+  --raw-lookup-mode skip
+```
+
+同时尽量精确判断“不是发明授权”等缺失原因：
+
+```bash
+python search_exact_time_patents.py \
+  "outputs/第二十四届中国专利金奖.csv" \
+  "outputs/第二十四届中国专利金奖_exact_time_lookup.csv" \
+  --raw-lookup-mode auto
+```
+
+如果列名不是标准名称，可以显式指定：
+
+```bash
+python search_exact_time_patents.py \
+  input.csv \
+  output.csv \
+  --application-col 申请号 \
+  --public-year-col 公开年份
+```
+
+8.3 输出列
+
+输出表保留原始输入列，并追加：
+
+- `查询公开年份`
+- `标题_摘要_ExactTime_window_1_状态`
+- `标题_摘要_ExactTime_window_1_命中公开年份`
+- `标题_摘要_ExactTime_window_1_排名`
+- `标题_摘要_ExactTime_window_1_年内专利数`
+- `标题_摘要_ExactTime_window_1_排名百分比`
+- `标题_摘要_ExactTime_window_1_quantity_q`
+- `标题_摘要_ExactTime_window_1_原因`
+- `标题_摘要_ExactTime_window_3_状态`
+- `标题_摘要_ExactTime_window_3_命中公开年份`
+- `标题_摘要_ExactTime_window_3_排名`
+- `标题_摘要_ExactTime_window_3_年内专利数`
+- `标题_摘要_ExactTime_window_3_排名百分比`
+- `标题_摘要_ExactTime_window_3_quantity_q`
+- `标题_摘要_ExactTime_window_3_原因`
+
+字段解释：
+
+- `查询公开年份`
+  本行实际用于查询实验产物的年份
+- `命中公开年份`
+  该实验最终命中的年份；通常与 `查询公开年份` 相同
+- `状态`
+  `找到` 或 `未找到`
+- `原因`
+  没找到时说明原因；找到但发生年份兜底时，也会记录说明
+
+8.4 `--raw-lookup-mode`
+
+- `skip`
+  不回查原始 `data/raw/*.csv`，速度更快；但无法精确区分“不是发明授权”与“原始数据不存在”
+- `auto`
+  优先使用 `rg` 回查原始 CSV；适合日常使用
+- `scan`
+  逐行扫描原始 CSV；最慢，但最彻底
+
+8.5 日志
+
+脚本默认输出 `INFO` 日志。可以看到：
+
+- 输入 CSV 读取进度
+- 共享授权 parquet 查询进度
+- 原始 CSV 回查进度
+- 每条输入对应的年份展开数量
+- 每个实验每个年份的 `index/stats` 加载进度
+
+如果需要更多日志：
+
+```bash
+python search_exact_time_patents.py input.csv output.csv --log-level DEBUG
+```

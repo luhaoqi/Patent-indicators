@@ -222,6 +222,65 @@ python inspect_patent_similarity_case.py \
 - 这时再补 `--date YYYY-MM-DD`，就是告诉脚本“我要的是这个公开公告日对应的那条记录”
 - `--title` 也是同样用途，只是用专利标题来辅助唯一定位
 
+### 4.6 exact 实验批量排名查询脚本
+
+如果你已经有一批专利申请号，想批量查询它们在：
+
+- `outputs/experiments/标题_摘要_ExactTime_window_1/stage1_exact/`
+- `outputs/experiments/标题_摘要_ExactTime_window_3/stage1_exact/`
+
+中的年内排名、排名百分比和 `quantity_q`，使用：
+
+- [search_exact_time_patents.py](search_exact_time_patents.py)
+
+这个脚本默认查询两个 exact 实验，并输出一个新的 CSV。
+
+输入支持两种形式：
+
+1. 只给 `申请号`
+   脚本会先去 `outputs/shared/raw_patent_authorized_parts/*.parquet` 中查这个申请号实际出现过的 `公开公告年份`，再按这些年份到两个实验里查询；如果同一个申请号对应多个公开年份，输出会展开成多行。
+
+2. 给 `申请号 + 公开年份`
+   脚本先按输入年份查；如果共享授权数据表明实际公开年份不同，也会继续按实际公开年份补查。
+
+最常用命令：
+
+```bash
+python search_exact_time_patents.py \
+  "outputs/第二十四届中国专利金奖.csv" \
+  "outputs/第二十四届中国专利金奖_exact_time_lookup.csv" \
+  --raw-lookup-mode auto
+```
+
+如果你只想依赖共享授权 parquet，不去原始 CSV 回查缺失原因：
+
+```bash
+python search_exact_time_patents.py \
+  "outputs/第二十四届中国专利金奖.csv" \
+  "outputs/第二十四届中国专利金奖_exact_time_lookup.csv" \
+  --raw-lookup-mode skip
+```
+
+输出表会保留原始输入列，并补充：
+
+- `查询公开年份`
+- `<experiment_id>_状态`
+- `<experiment_id>_命中公开年份`
+- `<experiment_id>_排名`
+- `<experiment_id>_年内专利数`
+- `<experiment_id>_排名百分比`
+- `<experiment_id>_quantity_q`
+- `<experiment_id>_原因`
+
+`--raw-lookup-mode` 含义：
+
+- `skip`
+  只查共享授权 parquet 与实验产物，不查原始 `data/raw/*.csv`
+- `auto`
+  优先用 `rg` 回查原始 CSV，补充“不是发明授权”“公开公告日无效”等原因
+- `scan`
+  逐行扫描原始 CSV，最慢但最彻底
+
 ---
 
 ## 5. 第二阶段：共享预处理层

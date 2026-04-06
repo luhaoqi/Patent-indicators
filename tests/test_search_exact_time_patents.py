@@ -142,6 +142,7 @@ class SearchExactTimePatentsTests(unittest.TestCase):
             with output_csv.open("r", encoding="utf-8-sig", newline="") as fh:
                 rows = list(csv.DictReader(fh))
 
+            self.assertEqual(len(rows), 5)
             found_row = rows[0]
             self.assertEqual(found_row[f"{WINDOW_1}_状态"], "找到")
             self.assertEqual(found_row[f"{WINDOW_1}_命中公开年份"], "2020")
@@ -168,6 +169,14 @@ class SearchExactTimePatentsTests(unittest.TestCase):
             self.assertEqual(wrong_year_row[f"{WINDOW_1}_排名"], "1")
             self.assertAlmostEqual(float(wrong_year_row[f"{WINDOW_1}_quantity_q"]), 4.0, places=6)
             self.assertIn("实际公开年份=2021", wrong_year_row[f"{WINDOW_1}_原因"])
+
+            summary_row = rows[-1]
+            self.assertEqual(summary_row["申请号"], "__summary_min_rank_percent_top5__")
+            self.assertEqual(summary_row["汇总_最小排名百分比Top1"], "50.0")
+            self.assertEqual(summary_row["汇总_最小排名百分比Top2"], "100.0")
+            self.assertEqual(summary_row["汇总_最小排名百分比Top3"], "100.0")
+            self.assertEqual(summary_row["汇总_最小排名百分比Top4"], "100.0")
+            self.assertEqual(summary_row["汇总_最小排名百分比Top5"], "")
 
     def test_application_only_input_expands_all_public_years(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -240,7 +249,7 @@ class SearchExactTimePatentsTests(unittest.TestCase):
             with output_csv.open("r", encoding="utf-8-sig", newline="") as fh:
                 rows = list(csv.DictReader(fh))
 
-            self.assertEqual(len(rows), 3)
+            self.assertEqual(len(rows), 4)
             self.assertEqual(rows[0]["查询公开年份"], "2019")
             self.assertEqual(rows[1]["查询公开年份"], "2021")
             self.assertEqual(rows[0][f"{WINDOW_1}_状态"], "找到")
@@ -250,6 +259,8 @@ class SearchExactTimePatentsTests(unittest.TestCase):
             self.assertEqual(rows[2]["申请号"], "P_NONE")
             self.assertEqual(rows[2]["查询公开年份"], "")
             self.assertEqual(rows[2][f"{WINDOW_1}_状态"], "未找到")
+            self.assertEqual(rows[3]["申请号"], "__summary_min_rank_percent_top5__")
+            self.assertEqual(rows[3]["汇总_最小排名百分比Top1"], "100.0")
 
 
 if __name__ == "__main__":

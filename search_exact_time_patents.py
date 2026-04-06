@@ -726,6 +726,10 @@ def write_output_csv(path: Path, fieldnames: Sequence[str], rows: Sequence[Dict[
             writer.writerow(row)
 
 
+def summarize_smallest_rank_percents(values: Sequence[float], top_n: int = 5) -> List[float]:
+    return [round(value, 6) for value in sorted(float(value) for value in values)[:top_n]]
+
+
 def configure_logging(level_name: str) -> None:
     level = getattr(logging, level_name.upper(), logging.INFO)
     logging.basicConfig(
@@ -795,9 +799,14 @@ def run(args: argparse.Namespace) -> Path:
     LOGGER.info("原始数据回查完成，实际模式=%s, 命中申请号数量=%s", raw_lookup_status, len(raw_records_by_app))
 
     output_rows: List[Dict[str, object]] = []
+    collected_rank_percents: List[float] = []
     output_fieldnames = list(input_fieldnames)
     if "查询公开年份" not in output_fieldnames:
         output_fieldnames.append("查询公开年份")
+    summary_percent_columns = [f"汇总_最小排名百分比Top{i}" for i in range(1, 6)]
+    for column in summary_percent_columns:
+        if column not in output_fieldnames:
+            output_fieldnames.append(column)
     for experiment_id in experiment_ids:
         output_fieldnames.extend(
             [
@@ -861,13 +870,15 @@ def run(args: argparse.Namespace) -> Path:
                         allow_fallback_years=bool(public_year_text and public_year is not None),
                     )
                 if resolved.hit is not None:
+                    rank_percent_value = round(resolved.hit.rank_percent, 6)
                     output_row[f"{prefix}_状态"] = "找到"
                     output_row[f"{prefix}_命中公开年份"] = resolved.matched_year or ""
                     output_row[f"{prefix}_排名"] = resolved.hit.rank
                     output_row[f"{prefix}_年内专利数"] = resolved.hit.year_total
-                    output_row[f"{prefix}_排名百分比"] = round(resolved.hit.rank_percent, 6)
+                    output_row[f"{prefix}_排名百分比"] = rank_percent_value
                     output_row[f"{prefix}_quantity_q"] = round(resolved.hit.quantity_q, 10)
                     output_row[f"{prefix}_原因"] = resolved.reason
+                    collected_rank_percents.append(rank_percent_value)
                     continue
 
                 reason = build_missing_reason(
@@ -888,9 +899,20 @@ def run(args: argparse.Namespace) -> Path:
 
             output_rows.append(output_row)
 
+    summary_row: Dict[str, object] = {field: "" for field in output_fieldnames}
+    if input_fieldnames:
+        summary_row[input_fieldnames[0]] = "__summary_min_rank_percent_top5__"
+    if len(input_fieldnames) >= 2:
+        summary_row[input_fieldnames[1]] = "仅统计所有排名百分比"
+    smallest_rank_percents = summarize_smallest_rank_percents(collected_rank_percents, top_n=5)
+    for idx, value in enumerate(smallest_rank_percents, start=1):
+        summary_row[f"汇总_最小排名百分比Top{idx}"] = value
+    output_rows.append(summary_row)
+
     LOGGER.info("写出结果 CSV: %s", output_path)
     write_output_csv(output_path, output_fieldnames, output_rows, args.output_encoding)
     LOGGER.info("结果行数=%s", len(output_rows))
+    print(f"[summary] smallest_rank_percent_top5={smallest_rank_percents}")
     return output_path
 
 
