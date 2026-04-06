@@ -83,6 +83,19 @@ class SearchExactTimePatentsTests(unittest.TestCase):
                     stats_rows,
                     encoding="utf-8",
                 )
+                _write_csv(
+                    stage1_dir / "index" / "year=2021.csv",
+                    ["row", "申请号", "公开公告年份", "公开公告日", "公开公告日_ord", "专利名称"],
+                    [
+                        [0, "D", 2021, "2021-03-01", 18687, "标题D"],
+                    ],
+                )
+                _write_csv(
+                    stage1_dir / "stats" / "bsfs_year=2021.csv",
+                    ["row", "BS", "FS"],
+                    [[0, 1.0, 4.0]],
+                    encoding="utf-8",
+                )
                 _write_jsonl(
                     stage1_dir / "tokens" / "year=2020.jsonl",
                     [
@@ -131,6 +144,7 @@ class SearchExactTimePatentsTests(unittest.TestCase):
 
             found_row = rows[0]
             self.assertEqual(found_row[f"{WINDOW_1}_状态"], "找到")
+            self.assertEqual(found_row[f"{WINDOW_1}_命中公开年份"], "2020")
             self.assertEqual(found_row[f"{WINDOW_1}_排名"], "1")
             self.assertEqual(found_row[f"{WINDOW_1}_年内专利数"], "2")
             self.assertAlmostEqual(float(found_row[f"{WINDOW_1}_排名百分比"]), 50.0)
@@ -149,8 +163,93 @@ class SearchExactTimePatentsTests(unittest.TestCase):
             self.assertIn("实用新型", non_auth_row[f"{WINDOW_1}_原因"])
 
             wrong_year_row = rows[3]
-            self.assertIn("公开年份为 2021", wrong_year_row[f"{WINDOW_1}_原因"])
-            self.assertIn("不是输入的 2020", wrong_year_row[f"{WINDOW_1}_原因"])
+            self.assertEqual(wrong_year_row[f"{WINDOW_1}_状态"], "找到")
+            self.assertEqual(wrong_year_row[f"{WINDOW_1}_命中公开年份"], "2021")
+            self.assertEqual(wrong_year_row[f"{WINDOW_1}_排名"], "1")
+            self.assertAlmostEqual(float(wrong_year_row[f"{WINDOW_1}_quantity_q"]), 4.0, places=6)
+            self.assertIn("实际公开年份=2021", wrong_year_row[f"{WINDOW_1}_原因"])
+
+    def test_application_only_input_expands_all_public_years(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            input_csv = root / "input.csv"
+            output_csv = root / "output.csv"
+            output_root = root / "experiments"
+            shared_dir = root / "shared_authorized_parts"
+            raw_dir = root / "raw"
+
+            _write_csv(
+                input_csv,
+                ["申请号", "备注"],
+                [
+                    ["P_MULTI", "multi_year"],
+                    ["P_NONE", "not_found"],
+                ],
+            )
+
+            for experiment_id in (WINDOW_1, WINDOW_3):
+                stage1_dir = output_root / experiment_id / "stage1_exact"
+                _write_csv(
+                    stage1_dir / "index" / "year=2019.csv",
+                    ["row", "申请号", "公开公告年份", "公开公告日", "公开公告日_ord", "专利名称"],
+                    [[0, "P_MULTI", 2019, "2019-01-01", 17897, "标题2019"]],
+                )
+                _write_csv(
+                    stage1_dir / "stats" / "bsfs_year=2019.csv",
+                    ["row", "BS", "FS"],
+                    [[0, 1.0, 2.0]],
+                    encoding="utf-8",
+                )
+                _write_csv(
+                    stage1_dir / "index" / "year=2021.csv",
+                    ["row", "申请号", "公开公告年份", "公开公告日", "公开公告日_ord", "专利名称"],
+                    [[0, "P_MULTI", 2021, "2021-01-01", 18628, "标题2021"]],
+                )
+                _write_csv(
+                    stage1_dir / "stats" / "bsfs_year=2021.csv",
+                    ["row", "BS", "FS"],
+                    [[0, 2.0, 8.0]],
+                    encoding="utf-8",
+                )
+
+            shared_dir.mkdir(parents=True, exist_ok=True)
+            shared_table = pa.Table.from_pylist(
+                [
+                    {"申请号": "P_MULTI", "公开公告年份": "2019", "公开公告日": "2019-01-01", "专利名称": "标题2019", "专利类型": "发明授权"},
+                    {"申请号": "P_MULTI", "公开公告年份": "2021", "公开公告日": "2021-01-01", "专利名称": "标题2021", "专利类型": "发明授权"},
+                ]
+            )
+            pq.write_table(shared_table, shared_dir / "part-000.parquet")
+
+            args = parse_args(
+                [
+                    str(input_csv),
+                    str(output_csv),
+                    "--output-root",
+                    str(output_root),
+                    "--shared-authorized-parts-dir",
+                    str(shared_dir),
+                    "--raw-data-path",
+                    str(raw_dir),
+                    "--raw-lookup-mode",
+                    "skip",
+                ]
+            )
+            run(args)
+
+            with output_csv.open("r", encoding="utf-8-sig", newline="") as fh:
+                rows = list(csv.DictReader(fh))
+
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(rows[0]["查询公开年份"], "2019")
+            self.assertEqual(rows[1]["查询公开年份"], "2021")
+            self.assertEqual(rows[0][f"{WINDOW_1}_状态"], "找到")
+            self.assertEqual(rows[1][f"{WINDOW_1}_状态"], "找到")
+            self.assertAlmostEqual(float(rows[0][f"{WINDOW_1}_quantity_q"]), 2.0, places=6)
+            self.assertAlmostEqual(float(rows[1][f"{WINDOW_1}_quantity_q"]), 4.0, places=6)
+            self.assertEqual(rows[2]["申请号"], "P_NONE")
+            self.assertEqual(rows[2]["查询公开年份"], "")
+            self.assertEqual(rows[2][f"{WINDOW_1}_状态"], "未找到")
 
 
 if __name__ == "__main__":
