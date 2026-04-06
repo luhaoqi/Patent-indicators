@@ -82,6 +82,9 @@
 - [verify_ir.py](verify_ir.py)
   抽样验证 IR / 相似度计算结果
 
+- [inspect_patent_similarity_case.py](inspect_patent_similarity_case.py)
+  exact 模式下按单个专利展开词项贡献与前后窗口相似度明细
+
 - [profile_matrix.py](profile_matrix.py)
   检查稀疏矩阵规模与分布
 
@@ -164,6 +167,60 @@ python tests/test_small.py
 ```bash
 python run_full.py
 ```
+
+### 4.5 exact 模式单专利验证脚本
+
+如果你已经跑完 exact 实验，并且想检查某一篇专利：
+
+- stage1 最终分词后到底哪些词参与了计算
+- 每个词对前后窗口相似度累计贡献了多少
+- 前 `k` 年 / 后 `k` 年里哪些专利和它最相似
+
+可以使用：
+
+```bash
+python inspect_patent_similarity_case.py \
+  --experiment-id 标题_摘要_ExactTime_window_1 \
+  --application-no CN201110047803.9 \
+  --year 2020 \
+  --date 2020-01-03
+```
+
+推荐直接分析 exact 实验，也就是 `outputs/experiments/<experiment_id>/stage1_exact/`。
+
+脚本输入：
+
+- `--application-no`：申请号，必填
+- `--year`：公开公告年份，必填
+- `--date`：公开公告日，选填
+- `--stage1-dir` 或 `--experiment-id`：二选一
+
+默认行为：
+
+- 不传 `--stage1-dir` 时，会根据 `--experiment-id` 自动定位 `stage1_exact`
+- 不传 `--k` 时，会优先从 `pair_contrib/*.npz` 或 `pair_list.json` 推断窗口大小；如果推断失败，回退到 `Config.window_size` 默认值 `5`
+- 不传 `--similarity-threshold` 时，会优先从 `pair_contrib/*.npz` 里的 `meta_json` 推断阈值；如果推断失败，回退到 `Config.similarity_threshold` 默认值 `0.05`
+- 不传 `--output-dir` 时，会输出到
+  `outputs/experiments/<experiment_id>/verification/patent_similarity_case/<case_name>/`
+- `--top-n` 默认 100，`--bottom-n` 默认 10；当窗口内候选很多时，只保留相似度前 100 和最后 10 条
+
+输出文件：
+
+- `term_contribution.csv`
+  目标专利每个词的 stage1 词频、是否进入最终向量、最终权重、向前/向后原始贡献、计入 BS/FS 的贡献
+- `backward_similarity.csv`
+  往前窗口内逐专利相似度，按相似度降序，只保留前 100 和后 10
+- `forward_similarity.csv`
+  往后窗口内逐专利相似度，按相似度降序，只保留前 100 和后 10
+- `summary.json`
+  目标专利信息、窗口参数、候选数量、贡献汇总、输出路径
+
+关于 `--date`：
+
+- 大多数时候只给 `申请号 + 公开公告年份` 就够了
+- 如果 exact 数据里某个申请号在同一年对应了多条记录，脚本就无法知道你想看哪一条
+- 这时再补 `--date YYYY-MM-DD`，就是告诉脚本“我要的是这个公开公告日对应的那条记录”
+- `--title` 也是同样用途，只是用专利标题来辅助唯一定位
 
 ---
 
