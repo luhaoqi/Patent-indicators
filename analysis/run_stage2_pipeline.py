@@ -435,7 +435,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--stage1-dir", required=True, help="stage1 结果目录")
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
-    parser.add_argument("--unit-filter-terms-path", default="高校_研究所过滤词.txt", help="高校/研究所等单位过滤词文件")
+    parser.add_argument("--unit-filter-terms-path", default="data/raw/stopword/高校_研究所过滤词.txt", help="高校/研究所等单位过滤词文件")
     parser.add_argument("--skip-diagnostics", action="store_true", help="跳过 diagnostics 步骤")
     parser.add_argument("--top-patents-per-year", type=int, default=100, help="每年导出的 top 专利数量")
     parser.add_argument("--innovation-top-k", type=int, default=10, help="firm-year 创新指数 TopK")

@@ -49,7 +49,7 @@ OUTPUT_CATEGORY = "特殊企业对比"
 FILTERED_OUTPUT_CATEGORY = "特殊企业_过滤部分单位"
 APPLICANT_COL = "申请人"
 UCC_YEAR_TOP_N = 1000
-DEFAULT_UNIT_FILTER_TERMS_PATH = "高校_研究所过滤词.txt"
+DEFAULT_UNIT_FILTER_TERMS_PATH = "data/raw/stopword/高校_研究所过滤词.txt"
 
 
 def analyze_special_firms(
