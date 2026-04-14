@@ -32,7 +32,7 @@ class Config:
     log_file: Optional[str] = None
     skip_if_exists: bool = True
     extra_cols: List[str] = field(default_factory=lambda: ["申请人", "申请人类型", "申请人地址", "申请人城市"])
-    manual_stopwords_path: str = "./stopword/专利停用词.txt"
+    manual_stopwords_path: str = "data/raw/stopword/专利停用词.txt"
     df_ratio_threshold: float = 0.20
     top_df_percent: float = 0.002
     topk_terms_per_doc: int = 30

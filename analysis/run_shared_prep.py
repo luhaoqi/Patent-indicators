@@ -17,11 +17,11 @@ from shared_prep import build_financial_annual_panel, build_special_firm_labels 
 
 
 DEFAULT_RAW_PATENT_DIR = "data/raw/中国专利分年份保存数据1985-2025"
-DEFAULT_SPECIAL_LIST_PATH = "analysis/graph/科创企业名单2024.dta"
-DEFAULT_FINANCIAL_DATA_PATH = "analysis/公司财务/数据/上市公司财务数据/上市公司财务数据.dta"
-DEFAULT_LISTEDCO_PARENT_PATH = "analysis/公司财务/数据/上市公司基本信息年度表/上市公司统一社会信用代码.csv"
-DEFAULT_SUBSIDIARY_MAPPING_PATH = "analysis/公司财务/数据/爱企查结果/上市公司子公司对应统一社会信用代码.csv"
-DEFAULT_SUBJOINT_CSV_PATH = "analysis/公司财务/数据/上市公司子公司联营合营情况表/STK_NotesSubJoint_merged.csv"
+DEFAULT_SPECIAL_LIST_PATH = "data/raw/科创企业名单2024.dta"
+DEFAULT_FINANCIAL_DATA_PATH = "data/raw/上市公司财务数据/上市公司财务数据.dta"
+DEFAULT_LISTEDCO_PARENT_PATH = "data/raw/上市公司基本信息年度表/上市公司统一社会信用代码.csv"
+DEFAULT_SUBSIDIARY_MAPPING_PATH = "data/raw/爱企查结果/上市公司子公司对应统一社会信用代码.csv"
+DEFAULT_SUBJOINT_CSV_PATH = "data/raw/上市公司子公司联营合营情况表/STK_NotesSubJoint_merged.csv"
 
 
 def parse_args() -> ArgumentParser:

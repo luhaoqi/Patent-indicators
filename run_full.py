@@ -14,9 +14,9 @@ def main():
         # 默认建议将原始数据放在 data/raw 目录
         data_path="data/raw/中国专利分年份保存数据1985-2025",
         # 停用词表目录
-        stopword_paths=["stopword"],
+        stopword_paths=["data/raw/stopword"],
         # 用户自定义词典
-        user_dict_path="user_dict/merged_96.txt",
+        user_dict_path="data/raw/user_dict/merged_96.txt",
         # [特征选择]
         min_term_count=50,  # 最小词频：小于50次的词被丢弃 (大规模数据建议20-50)
         max_doc_freq_ratio=0.5,  # 最大文档频率：超过50%文档出现的词被丢弃(太通用的词)

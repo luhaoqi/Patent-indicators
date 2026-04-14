@@ -283,17 +283,17 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument(
         "--parent-csv-path",
-        default="analysis/公司财务/数据/上市公司基本信息年度表/上市公司统一社会信用代码.csv",
+        default="data/raw/上市公司基本信息年度表/上市公司统一社会信用代码.csv",
         help="母公司统一社会信用代码表",
     )
     parser.add_argument(
         "--subsidiary-mapping-path",
-        default="analysis/公司财务/数据/爱企查结果/上市公司子公司对应统一社会信用代码.csv",
+        default="data/raw/爱企查结果/上市公司子公司对应统一社会信用代码.csv",
         help="子公司名称到统一社会信用代码映射表",
     )
     parser.add_argument(
         "--subjoint-csv-path",
-        default="analysis/公司财务/数据/上市公司子公司联营合营情况表/STK_NotesSubJoint_merged.csv",
+        default="data/raw/上市公司子公司联营合营情况表/STK_NotesSubJoint_merged.csv",
         help="上市公司子公司联营合营情况明细表",
     )
     parser.add_argument("--output-path", help="输出 CSV 路径，不传则写入 experiment data 目录")
