@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(du:*)",
+      "Bash(wc -l /mnt/c/users/luhaoqi/documents/code/patent-indicators/docs/*.md)",
+      "Bash(ls -lh /mnt/c/users/luhaoqi/documents/code/patent-indicators/analysis/graph/*.parquet)",
+      "Bash(ls:*)"
+    ]
+  }
+}
