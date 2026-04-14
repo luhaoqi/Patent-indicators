@@ -82,8 +82,14 @@
 - [verify_ir.py](verify_ir.py)
   抽样验证 IR / 相似度计算结果
 
+- [inspect_patent_case.py](inspect_patent_case.py)
+  非 exact 模式下追踪单条专利在 stage1 中哪些词被保留/舍弃、各词贡献多少；支持 `--cases-manifest` 批量运行
+
 - [inspect_patent_similarity_case.py](inspect_patent_similarity_case.py)
   exact 模式下按单个专利展开词项贡献与前后窗口相似度明细
+
+- [verify_patent_exact_time.py](verify_patent_exact_time.py)
+  从头对单条专利重跑 exact 模式全流程（分词→向量化→剪枝→相似度），并与 stage1 已有结果逐步比对，验证正确性
 
 - [profile_matrix.py](profile_matrix.py)
   检查稀疏矩阵规模与分布
@@ -93,6 +99,8 @@
 
 - [tests/test_stage2_refactor.py](tests/test_stage2_refactor.py)
   shared prep 与新 stage2 输入链路测试
+
+完整测试套件见 `tests/` 目录，运行 `python -m pytest tests/` 可执行全部测试。
 
 ---
 
@@ -389,14 +397,15 @@ python analysis/verify_shared_prep.py
 
 ### 6.1 stage2 总流程
 
-[analysis/run_stage2_pipeline.py](analysis/run_stage2_pipeline.py) 当前按 6 步执行：
+[analysis/run_stage2_pipeline.py](analysis/run_stage2_pipeline.py) 当前按 7 步执行：
 
 1. `diagnostics`
 2. `build_experiment_patent_panel`
-3. `analyze_quality_basic`
-4. `analyze_special_firms`
-5. `build_firm_year_innovation`
-6. `run_regressions`
+3. `export_top_patents_by_year`
+4. `analyze_quality_basic`
+5. `analyze_special_firms`
+6. `build_firm_year_innovation`
+7. `run_regressions`
 
 ### 6.2 每一步对应脚本
 
@@ -426,6 +435,19 @@ python analysis/verify_shared_prep.py
 - `stage2/data/patent_quality_output.csv`
 - `stage2/data/main.parquet`
 - `stage2/data/experiment_patent_panel.parquet`
+
+#### export_top_patents_by_year
+
+相关脚本：
+- [analysis/export_top_patents_by_year.py](analysis/export_top_patents_by_year.py)
+
+输入：
+- `stage2/data/experiment_patent_panel.parquet`
+- `outputs/shared/ucc_mapping/ucc_exploded.parquet`
+- `outputs/shared/raw_patent_authorized_parts/*.parquet`
+
+输出：
+- `stage2/tables/top_patents_by_year/*.csv`
 
 #### analyze_quality_basic
 

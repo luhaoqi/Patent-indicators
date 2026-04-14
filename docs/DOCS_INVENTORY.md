@@ -139,22 +139,23 @@ Trae IDE 自动生成的开发文档，共 3 个文件。
 
 ### 9.1 建议立即删除
 
-- [ ] `AI prompt/` 整个目录（7 个文件）
-- [ ] `.trae/documents/` 整个目录（3 个文件）
-- [ ] `.VSCodeCounter/` 整个目录
-- [ ] `docs/artifacts_full_30years_run.log`
-- [ ] `analysis/graph/中期图像说明.md`
-- [ ] `analysis/公司财务/enscan.exe`
-- [ ] `analysis/公司财务/数据/outs/`
+- [x] `AI prompt/` 整个目录（7 个文件）— 已删除
+- [x] `.trae/documents/` 整个目录（3 个文件）— 已删除
+- [x] `.VSCodeCounter/` 整个目录 — 已删除
+- [x] `docs/artifacts_full_30years_run.log` — 已删除
+- [x] `analysis/graph/中期图像说明.md` — 已删除
+- [ ] `analysis/公司财务/enscan.exe` — 本地未找到
+- [x] `analysis/公司财务/数据/outs/` — 已删除
 
 ### 9.2 建议删除（与 README.md 重复或已被取代）
 
-- [ ] `docs/STAGE2_FLOW_DETAILED.md` — 内容已被 README.md §6 覆盖
-- [ ] `docs/STAT_改造说明.md` — 纯历史记录
-- [ ] `docs/工程化优化思路.md` — 已被 `论文_工程化实现_数据支撑.md` 取代
+- [x] `docs/STAGE2_FLOW_DETAILED.md` — 已删除
+- [x] `docs/STAT_改造说明.md` — 已删除
+- [x] `docs/工程化优化思路.md` — 已删除
 
 ### 9.3 建议添加到 .gitignore
 
+已添加：
 ```
 .trae/
 .VSCodeCounter/

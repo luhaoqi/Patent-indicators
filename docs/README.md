@@ -32,13 +32,7 @@
 6. [analysis/README.md](../analysis/README.md)
    - 第二阶段当前脚本入口和 shared prep / stage2 结构
 
-7. [STAT_改造说明.md](./STAT_改造说明.md)
-   - 历史设计文档，主要记录早期脚本化改造思路
-
-8. [STAGE2_FLOW_DETAILED.md](./STAGE2_FLOW_DETAILED.md)
-   - 历史流程文档，主要描述重构前的 stage2 7 步流程
-
-9. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
+7. [阶段1_阶段2提速改造方案.md](./阶段1_阶段2提速改造方案.md)
    - 性能优化与验证思路
 
 ---

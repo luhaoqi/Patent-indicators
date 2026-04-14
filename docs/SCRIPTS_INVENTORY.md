@@ -120,19 +120,19 @@ README 已记录 `test_small.py` 和 `test_stage2_refactor.py`。以下 8 个测
 
 ### 7.1 需要补充到 README.md 的（2 个）
 
-- [ ] `inspect_patent_case.py` — 补充到 §2.4 "验证与辅助入口"
-- [ ] `verify_patent_exact_time.py` — 补充到 §2.4 "验证与辅助入口"
+- [x] `inspect_patent_case.py` — 已补充到 §2.4
+- [x] `verify_patent_exact_time.py` — 已补充到 §2.4
 
 ### 7.2 建议删除的脚本（8 个）
 
-- [ ] `compare_stage1_outputs.py` — 引用已废弃的 `data/result/` 旧路径
-- [ ] `analysis/run_diagnostics.py` — 功能已被 pipeline 整合
-- [ ] `analysis/calc_avg_vocab_usage.py` — 同上
-- [ ] `analysis/calc_df_pair_sum.py` — 同上
-- [ ] `analysis/calc_topk_df_pair_sum.py` — 同上
-- [ ] `analysis/calc_yearly_top_vocab.py` — 同上
-- [ ] `analysis/calc_yearly_vocab_size.py` — 同上
-- [ ] `analysis/extract_exacttime_regression_results.py` — 硬编码路径的一次性结果提取
+- [x] `compare_stage1_outputs.py` — 已删除
+- [x] `analysis/run_diagnostics.py` — 已删除
+- [x] `analysis/calc_avg_vocab_usage.py` — 已删除
+- [x] `analysis/calc_df_pair_sum.py` — 已删除
+- [x] `analysis/calc_topk_df_pair_sum.py` — 已删除
+- [x] `analysis/calc_yearly_top_vocab.py` — 已删除
+- [x] `analysis/calc_yearly_vocab_size.py` — 已删除
+- [x] `analysis/extract_exacttime_regression_results.py` — 已删除
 
 ### 7.3 可留可删的脚本（1 个）
 
@@ -140,4 +140,4 @@ README 已记录 `test_small.py` 和 `test_stage2_refactor.py`。以下 8 个测
 
 ### 7.4 README.md 中关于测试的补充
 
-- [ ] 补充一句"完整测试套件见 `tests/` 目录"
+- [x] 已补充"完整测试套件见 `tests/` 目录"

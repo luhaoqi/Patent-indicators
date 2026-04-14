@@ -238,16 +238,10 @@ python analysis/run_stage2_batch.py --manifest path/to/stage2_manifest.yaml
 
 ---
 
-## 7. 历史文档说明
+## 7. 独立运行子脚本
 
-以下文档主要用于记录**旧版 stage2 流程**或重构过程，不再等同于当前实现：
+每个步骤脚本也支持独立运行，可用 `python analysis/<脚本名>.py --help` 查看参数，方便调试单步。
 
-- [docs/STAGE2_FLOW_DETAILED.md](../docs/STAGE2_FLOW_DETAILED.md)
-- [docs/STAT_改造说明.md](../docs/STAT_改造说明.md)
-- [docs/STAGE2_REFACTOR_PLAN.md](../docs/STAGE2_REFACTOR_PLAN.md)
+## 8. 历史文档说明
 
-其中：
-
-- `STAGE2_FLOW_DETAILED.md` 主要描述重构前的 7 步旧流程
-- `STAT_改造说明.md` 主要记录 notebook 向脚本化迁移时期的设计
-- `STAGE2_REFACTOR_PLAN.md` 是本次 shared prep 改造方案文档
+- [docs/STAGE2_REFACTOR_PLAN.md](../docs/STAGE2_REFACTOR_PLAN.md) 是 shared prep 改造方案文档，记录了重构设计思路。
