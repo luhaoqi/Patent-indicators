@@ -1,2 +1,4 @@
 *.parquet
 *.dta
+*.png
+*.csv
