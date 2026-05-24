@@ -20,7 +20,7 @@ from common.tables import export_table  # noqa: E402
 
 
 OUTPUT_CATEGORY = "回归分析"
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 DEFAULT_SAMPLE_THRESHOLDS = (10, 5, 1)
 DEFAULT_WINSOR_LOWER = 0.01
 DEFAULT_WINSOR_UPPER = 0.99
@@ -29,12 +29,33 @@ DEFAULT_RD_YEAR_MAX = 2023
 DEFAULT_FUTURE_HORIZONS = (1, 2, 3, 4, 5)
 MAIN_QUALITY_VARS = ("mean_z_q_ft", "highq_share_ft", "log_highq_count_ft")
 FUTURE_QUALITY_VARS = ("mean_z_q_ft", "highq_share_ft")
+PRIMARY_CITATION_VAR = "log_cite_other_sum_ft"
+SECONDARY_CITATION_VAR = "log_cite_total_sum_ft"
+CITATION_VARS = (PRIMARY_CITATION_VAR, SECONDARY_CITATION_VAR)
+CITATION_COLUMNS = (
+    "cite_other_sum_ft",
+    "mean_cite_other_ft",
+    "highcite_other_count_ft",
+    "highcite_other_share_ft",
+    "log_cite_other_sum_ft",
+    "log_highcite_other_count_ft",
+    "cite_total_sum_ft",
+    "mean_cite_total_ft",
+    "highcite_total_count_ft",
+    "highcite_total_share_ft",
+    "log_cite_total_sum_ft",
+    "log_highcite_total_count_ft",
+)
 QUALITY_VAR_LABELS = {
     "mean_z_q_ft": "mean_z",
     "highq_share_ft": "highq_share",
     "log_highq_count_ft": "log_highq_count",
     "mean_raw_q_w_ft": "mean_raw_q_w",
     "rd_intensity_asset": "rd_asset",
+    "log_cite_other_sum_ft": "logciteother",
+    "log_cite_total_sum_ft": "logcitetotal",
+    "cite_other_sum_ft": "citeother",
+    "cite_total_sum_ft": "citetotal",
 }
 REGRESSION_TEXT_DIRNAME = "regressions"
 
@@ -45,6 +66,7 @@ def run_regressions(
     output_root: str = "outputs/experiments",
     firm_year_innovation_path: Optional[Path] = None,
     financial_panel_path: Optional[Path] = None,
+    citation_panel_path: Optional[Path] = None,
     shared_root: str = "outputs/shared",
     year_min: int = 2000,
     year_max: int = 2023,
@@ -95,6 +117,23 @@ def run_regressions(
     df = fin_annual.merge(innov, on=["stkcd", "year"], how="left")
     logger.info("财务与创新指标合并后 rows=%s", len(df))
 
+    effective_citation_panel_path = citation_panel_path
+    if effective_citation_panel_path is None:
+        shared_paths = build_shared_paths(shared_root)
+        candidate = shared_paths.root / "firm_year_citations" / "firm_year_citations.parquet"
+        if candidate.exists():
+            effective_citation_panel_path = candidate
+
+    if effective_citation_panel_path is not None and effective_citation_panel_path.exists():
+        logger.info("读取共享公司年被引面板: %s", repo_relative(effective_citation_panel_path))
+        cite_panel = _normalize_citation_panel(pd.read_parquet(effective_citation_panel_path))
+        df = df.merge(cite_panel, on=["stkcd", "year"], how="left")
+        logger.info("公司年被引面板合并后 rows=%s 公司有 cite 记录=%s",
+                    len(df), int(df["log_cite_other_sum_ft"].notna().sum()))
+    else:
+        logger.info("未检测到 firm_year_citations 面板，跳过 citation 对照规格")
+        effective_citation_panel_path = None
+
     df = _prepare_regression_panel(df, winsor_lower=winsor_lower, winsor_upper=winsor_upper)
     dep_configs = _build_dep_configs(df)
     df = _add_future_outcome_columns(
@@ -122,6 +161,13 @@ def run_regressions(
             sample_thresholds=thresholds,
         )
     )
+    if effective_citation_panel_path is not None:
+        specs.extend(
+            _build_citation_specs(
+                dep_configs=dep_configs,
+                sample_thresholds=thresholds,
+            )
+        )
     logger.info("待执行回归规格数=%s", len(specs))
 
     universe_counts = {
@@ -193,6 +239,7 @@ def run_regressions(
         "experiment_id": experiment_id,
         "firm_year_innovation_path": repo_relative(innovation_path),
         "financial_panel_path": repo_relative(effective_financial_panel_path) if effective_financial_panel_path is not None else None,
+        "citation_panel_path": repo_relative(effective_citation_panel_path) if effective_citation_panel_path is not None else None,
         "regression_panel_path": repo_relative(regression_panel_path),
         "table_outputs": [repo_relative(summary_csv), repo_relative(summary_tex)] + text_outputs,
         "sample_summary_outputs": [repo_relative(sample_csv), repo_relative(sample_tex)],
@@ -348,6 +395,28 @@ def _normalize_financial_panel(
     return df.reset_index(drop=True)
 
 
+def _normalize_citation_panel(frame: pd.DataFrame) -> pd.DataFrame:
+    df = frame.copy()
+    if "Stkid" in df.columns and "stkcd" not in df.columns:
+        df = df.rename(columns={"Stkid": "stkcd"})
+    if "stkcd" not in df.columns:
+        raise KeyError("firm_year_citations 面板缺少 Stkid/stkcd 列")
+    if "year" not in df.columns:
+        raise KeyError("firm_year_citations 面板缺少 year 列")
+    df["stkcd"] = pd.to_numeric(df["stkcd"], errors="coerce").astype("Int64").astype("string").str.zfill(6)
+    df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
+    df = df[df["stkcd"].notna() & df["year"].notna()].copy()
+    df["year"] = df["year"].astype(int)
+
+    keep_columns = ["stkcd", "year", *CITATION_COLUMNS]
+    keep_columns = [column for column in keep_columns if column in df.columns]
+    df = df[keep_columns]
+    for column in CITATION_COLUMNS:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df.drop_duplicates(["stkcd", "year"], keep="last").reset_index(drop=True)
+
+
 def _prepare_regression_panel(
     frame: pd.DataFrame,
     *,
@@ -356,6 +425,11 @@ def _prepare_regression_panel(
 ) -> pd.DataFrame:
     df = frame.copy()
     df["PatentCount"] = pd.to_numeric(df.get("PatentCount"), errors="coerce").fillna(0)
+    for column in CITATION_COLUMNS:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+        else:
+            df[column] = 0.0
     if "log_patent_count_ft" in df.columns:
         df["log_patent_count_ft"] = pd.to_numeric(df["log_patent_count_ft"], errors="coerce")
     else:
@@ -701,6 +775,82 @@ def _build_rd_specs(
     return specs
 
 
+def _build_citation_specs(
+    *,
+    dep_configs: Sequence[dict[str, Any]],
+    sample_thresholds: Sequence[int],
+) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for cite_var in CITATION_VARS:
+        is_primary = cite_var == PRIMARY_CITATION_VAR
+        horse_family = "cite_horse_race" if is_primary else "cite_horse_race_robust"
+        only_family = "cite_only" if is_primary else "cite_only_robust"
+        horse_suffix = "citehorse" if is_primary else "citehorseR"
+        only_suffix = "citeonly" if is_primary else "citeonlyR"
+        for sample_threshold in sample_thresholds:
+            for dep_config in dep_configs:
+                if not dep_config["include_rd"]:
+                    continue
+                controls = _build_controls_for_dep(dep_config)
+                for quality_var in MAIN_QUALITY_VARS:
+                    horse_id = _build_spec_id(
+                        dep_var=dep_config["dep_var"],
+                        key_regressor=quality_var,
+                        sample_threshold=sample_threshold,
+                        suffix=horse_suffix,
+                    )
+                    specs.append(
+                        {
+                            "spec_id": horse_id,
+                            "model_family": horse_family,
+                            "dep_var": dep_config["dep_var"],
+                            "dep_source": dep_config["dep_source"],
+                            "key_regressor": quality_var,
+                            "regressor_vars": [quality_var, cite_var],
+                            "sample_threshold": int(sample_threshold),
+                            "sample_rule": f"PatentCount >= {int(sample_threshold)}",
+                            "year_range": None,
+                            "controls": controls,
+                            "add_count_control": True,
+                            "future_horizon": 0,
+                            "rd_var": None,
+                            "rd_same_sample": False,
+                            "rd_year_min": None,
+                            "rd_year_max": None,
+                            "cite_var": cite_var,
+                        }
+                    )
+
+                cite_only_id = _build_spec_id(
+                    dep_var=dep_config["dep_var"],
+                    key_regressor=cite_var,
+                    sample_threshold=sample_threshold,
+                    suffix=only_suffix,
+                )
+                specs.append(
+                    {
+                        "spec_id": cite_only_id,
+                        "model_family": only_family,
+                        "dep_var": dep_config["dep_var"],
+                        "dep_source": dep_config["dep_source"],
+                        "key_regressor": cite_var,
+                        "regressor_vars": [cite_var],
+                        "sample_threshold": int(sample_threshold),
+                        "sample_rule": f"PatentCount >= {int(sample_threshold)}",
+                        "year_range": None,
+                        "controls": controls,
+                        "add_count_control": True,
+                        "future_horizon": 0,
+                        "rd_var": None,
+                        "rd_same_sample": False,
+                        "rd_year_min": None,
+                        "rd_year_max": None,
+                        "cite_var": cite_var,
+                    }
+                )
+    return specs
+
+
 def _build_spec_id(
     *,
     dep_var: str,
@@ -790,6 +940,7 @@ def _run_single_spec(
         final_reg_firms,
     )
 
+    cite_var = spec.get("cite_var")
     summary_row = {
         "spec_id": spec["spec_id"],
         "status": "failed",
@@ -798,6 +949,7 @@ def _run_single_spec(
         "dep_source": dep_source,
         "key_regressor": spec["key_regressor"],
         "rd_var": spec["rd_var"],
+        "cite_var": cite_var,
         "sample_threshold": int(spec["sample_threshold"]),
         "sample_rule": spec["sample_rule"],
         "year_range": spec["year_range"],
@@ -811,6 +963,9 @@ def _run_single_spec(
         "rd_coef": np.nan,
         "rd_se": np.nan,
         "rd_p": np.nan,
+        "cite_coef": np.nan,
+        "cite_se": np.nan,
+        "cite_p": np.nan,
         "nobs": final_reg_nobs_pre_fit,
         "nfirms": final_reg_firms,
         "rsq_within": np.nan,
@@ -862,6 +1017,7 @@ def _run_single_spec(
         text_path = _build_regression_text_path(table_dir, spec)
         text_path.write_text(str(result.summary), encoding="utf-8")
 
+        cite_var = spec.get("cite_var")
         summary_row.update(
             {
                 "status": "success",
@@ -872,6 +1028,9 @@ def _run_single_spec(
                 "rd_coef": float(result.params.get(spec["rd_var"], np.nan)) if spec["rd_var"] is not None else np.nan,
                 "rd_se": float(result.std_errors.get(spec["rd_var"], np.nan)) if spec["rd_var"] is not None else np.nan,
                 "rd_p": float(result.pvalues.get(spec["rd_var"], np.nan)) if spec["rd_var"] is not None else np.nan,
+                "cite_coef": float(result.params.get(cite_var, np.nan)) if cite_var is not None else np.nan,
+                "cite_se": float(result.std_errors.get(cite_var, np.nan)) if cite_var is not None else np.nan,
+                "cite_p": float(result.pvalues.get(cite_var, np.nan)) if cite_var is not None else np.nan,
                 "nobs": int(result.nobs),
                 "nfirms": int(panel_df.index.get_level_values(0).nunique()),
                 "rsq_within": float(result.rsquared_within),
@@ -948,6 +1107,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument("--output-root", default="outputs/experiments", help="统一实验输出根目录")
     parser.add_argument("--firm-year-innovation-path", help="firm_year_innovation.parquet 路径")
     parser.add_argument("--financial-panel-path", help="共享 financial_annual_clean.parquet 路径")
+    parser.add_argument("--citation-panel-path", help="共享 firm_year_citations.parquet 路径")
     parser.add_argument("--shared-root", default="outputs/shared", help="共享产物根目录")
     parser.add_argument("--year-min", type=int, default=2000, help="财务样本最小年份")
     parser.add_argument("--year-max", type=int, default=2023, help="财务样本最大年份")
@@ -968,6 +1128,7 @@ def main() -> None:
         output_root=args.output_root,
         firm_year_innovation_path=resolve_repo_path(args.firm_year_innovation_path) if args.firm_year_innovation_path else None,
         financial_panel_path=resolve_repo_path(args.financial_panel_path) if args.financial_panel_path else None,
+        citation_panel_path=resolve_repo_path(args.citation_panel_path) if args.citation_panel_path else None,
         shared_root=args.shared_root,
         year_min=args.year_min,
         year_max=args.year_max,
